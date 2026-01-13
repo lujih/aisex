@@ -61,13 +61,13 @@
 
 2.  **创建 D1 数据库**
     ```bash
-    npx wrangler d1 create secret-garden-db
+    npx wrangler d1 create aisex
     ```
     *复制终端返回的 `database_id`，填入 `wrangler.toml` 文件中。*
 
 3.  **初始化表结构**
     ```bash
-    npx wrangler d1 execute secret-garden-db --local --file=./schema.sql
+    npx wrangler d1 execute aisex --local --file=./schema.sql
     ```
 
 4.  **本地运行**
@@ -78,7 +78,7 @@
 5.  **部署上线**
     ```bash
     # 先初始化远程数据库表结构
-    npx wrangler d1 execute secret-garden-db --remote --file=./schema.sql
+    npx wrangler d1 execute aisex --remote --file=./schema.sql
     
     # 设置密钥
     npx wrangler secret put JWT_SECRET
