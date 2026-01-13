@@ -1,9 +1,9 @@
-name = "secret-garden-worker"
+name = "aisex"
 main = "worker.js"
 compatibility_date = "2026-01-13"
 
 # 部署按钮会自动覆盖这里的配置，或者提示用户创建
 [[d1_databases]]
 binding = "DB"
-database_name = "secret-garden-db"
+database_name = "aisex"
 database_id = ""
