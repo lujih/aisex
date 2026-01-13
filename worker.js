@@ -1,5 +1,5 @@
 /**
- * 秘密花园 (Secret Garden) - v6.0.0
+ * 秘密花园 (Secret Garden) - v6.0
  * 功能: 编辑+改密+时区+无限流+图表交互
  * 数据库: Cloudflare D1 (绑定变量: DB)
  */
