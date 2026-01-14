@@ -236,7 +236,9 @@ async function serveFrontend() {
     .dock-item svg { width: 20px; height: 20px; stroke: currentColor; stroke-width: 2; fill: none; transition: 0.3s; }
     .dock-item.active { color: var(--primary); }
     .dock-item.active svg { transform: translateY(-3px); stroke: var(--primary); }
-    .dock-fab { width: 48px; height: 48px; background: var(--primary); border-radius: 50%; display: flex; align-items: center; justify-content: center; margin-top: -30px; border: 4px solid var(--bg-deep); color: #fff; font-size: 1.5rem; box-shadow: 0 0 15px var(--primary); cursor: pointer; }
+    .dock-fab { width: 56px; height: 56px; background: linear-gradient(135deg, var(--primary), #ff6b9d); border-radius: 50%; display: flex; align-items: center; justify-content: center; margin-top: -35px; border: 4px solid var(--bg-deep); color: #fff; font-size: 2rem; box-shadow: 0 0 25px var(--primary), 0 0 40px rgba(217, 70, 239, 0.5); cursor: pointer; transition: all 0.3s ease; animation: pulse-glow 2s infinite; }
+    .dock-fab:active { transform: scale(0.9); box-shadow: 0 0 15px var(--primary); }
+    @keyframes pulse-glow { 0% { box-shadow: 0 0 25px var(--primary), 0 0 40px rgba(217, 70, 239, 0.5); } 50% { box-shadow: 0 0 35px var(--primary), 0 0 60px rgba(217, 70, 239, 0.8); } 100% { box-shadow: 0 0 25px var(--primary), 0 0 40px rgba(217, 70, 239, 0.5); } }
 
     /* 通用样式补全 */
     .stats-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px; margin-bottom: 20px; }
@@ -297,8 +299,8 @@ async function serveFrontend() {
        <h2 style="font-family:'Cinzel'; margin:0; font-size:1.4rem;">My Garden</h2>
        <div style="display:flex; align-items:center; gap:10px;">
            <span id="headerDate" style="font-size:0.8rem; color:#666;"></span>
-           <!-- 计时按钮 -->
-           <button onclick="startTimer()" style="background:rgba(255,255,255,0.1); border:none; color:var(--primary); width:32px; height:32px; border-radius:50%; display:flex; align-items:center; justify-content:center; cursor:pointer;">⏱️</button>
+           <!-- 加号按钮 -->
+           <button onclick="openModal(false)" style="background:rgba(255,255,255,0.1); border:none; color:var(--primary); width:32px; height:32px; border-radius:50%; display:flex; align-items:center; justify-content:center; cursor:pointer; font-size:1.2rem;">+</button>
        </div>
     </header>
 
@@ -372,8 +374,8 @@ async function serveFrontend() {
       <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"></circle><polyline points="12 6 12 12 16 14"></polyline></svg>
       <span>历史</span>
     </div>
-    <div class="dock-fab" onclick="openModal(false)">
-      <span style="font-size:2rem; line-height:1;">+</span>
+    <div class="dock-fab" onclick="startTimer()">
+      <span style="font-size:1.8rem; line-height:1;">⏱️</span>
     </div>
     <div class="dock-item" onclick="switchView('leaderboard', this)">
       <svg viewBox="0 0 24 24"><path d="M6 9H4.5a2.5 2.5 0 0 1 0-5H6"></path><path d="M18 9h1.5a2.5 2.5 0 0 0 0-5H18"></path><path d="M4 22h16"></path></svg>
