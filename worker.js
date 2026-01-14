@@ -1,6 +1,6 @@
 /**
- * 秘密花园 (Secret Garden) - v7.1 Pro
- * 修复: 看板数据丢失、类型切换、选项缺失、个人中心
+ * 秘密花园 (Secret Garden) - v7.2 Pro
+ * 特性: 全屏沉浸计时器 + 时光轴历史 + 深度优化UI
  */
 
 const DEFAULT_JWT_SECRET = 'change-this-secret-in-env-vars-please'; 
@@ -11,7 +11,7 @@ const CORS_HEADERS = {
   'Access-Control-Max-Age': '86400',
 };
 
-// --- 翻译映射表 (完整版) ---
+// --- 翻译映射表 (保持不变) ---
 const TR_MAP = {
   'bedroom': '卧室', 'living_room': '客厅', 'bathroom': '浴室', 'hotel': '酒店', 'car': '车内', 'outdoor': '野战', 'office': '办公室', 'public_space': '公共场所', 'pool': '泳池', 'friend_house': '朋友家', 'other': '其他',
   'horny': '🔥 性致勃勃', 'romantic': '🌹 浪漫', 'passionate': '❤️‍🔥 激情', 'aggressive': '😈 暴躁/发泄', 'stressed': '😫 压力释放', 'lazy': '🛌 慵懒', 'bored': '🥱 无聊', 'happy': '🥰 开心', 'drunk': '🍷 微醺', 'high': '🌿 嗨大了', 'experimental': '🧪 猎奇', 'morning_wood': '🌅 晨勃', 'lonely': '🌑 孤独', 'sad': '😢 悲伤', 'none': '纯想象', 'fantasy': '特定幻想', 
@@ -26,21 +26,16 @@ export default {
   async fetch(request, env, ctx) {
     const url = new URL(request.url);
     const path = url.pathname;
-
     if (request.method === 'OPTIONS') return new Response(null, { headers: CORS_HEADERS });
 
     try {
       if (path === '/' || path === '/index.html') return serveFrontend();
-      
-      // Auth
       if (path === '/api/auth/register') return await registerUser(request, env);
       if (path === '/api/auth/login') return await loginUser(request, env);
 
-      // Verify
       const user = await verifyAuth(request, env);
       if (!user) return errorResponse('Unauthorized', 401);
 
-      // Business
       if (path === '/api/auth/password') return await changePassword(request, env, user);
       
       if (path === '/api/records') {
@@ -54,16 +49,11 @@ export default {
       else if (path === '/api/leaderboard') return await getLeaderboard(env);
       
       return new Response('Not found', { status: 404, headers: CORS_HEADERS });
-    } catch (error) {
-      return errorResponse(error.message, 500);
-    }
+    } catch (error) { return errorResponse(error.message, 500); }
   }
 };
 
-// ==========================================
-// 业务逻辑 (保持原有功能，略微精简代码结构)
-// ==========================================
-
+// --- 后端逻辑 (保持 v7.1 一致) ---
 async function getRecords(req, env, user) {
   const url = new URL(req.url);
   const page = Math.max(1, parseInt(url.searchParams.get('page')) || 1);
@@ -72,12 +62,10 @@ async function getRecords(req, env, user) {
 
   let sql = `SELECT * FROM records WHERE uid = ?`;
   let params = [user.uid];
-
   if (search) {
     sql += ` AND (data_json LIKE ? OR location LIKE ? OR mood LIKE ?)`;
     params.push(`%${search}%`, `%${search}%`, `%${search}%`);
   }
-
   sql += ` ORDER BY datetime DESC LIMIT ? OFFSET ?`;
   params.push(limit, offset);
 
@@ -86,7 +74,6 @@ async function getRecords(req, env, user) {
     let extra = {}; try { extra = JSON.parse(r.data_json || '{}'); } catch(e) {}
     return { ...r, ...extra, data_json: undefined };
   });
-
   return jsonResponse({ records, page });
 }
 
@@ -102,40 +89,17 @@ async function createRecord(req, env, user) {
   const data = await req.json();
   const id = generateId();
   const { core, extra } = splitData(data, user.uid, id);
-
-  await env.DB.prepare(`
-    INSERT INTO records (
-      id, uid, activity_type, datetime, duration, location, mood, 
-      satisfaction, orgasm_count, ejaculation_count, data_json, created_at
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-  `).bind(
-    core.id, core.uid, core.activity_type, core.datetime, core.duration, core.location, core.mood,
-    core.satisfaction, core.orgasm_count, core.ejaculation_count, JSON.stringify(extra), new Date().toISOString()
-  ).run();
-
+  await env.DB.prepare(`INSERT INTO records (id, uid, activity_type, datetime, duration, location, mood, satisfaction, orgasm_count, ejaculation_count, data_json, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`).bind(core.id, core.uid, core.activity_type, core.datetime, core.duration, core.location, core.mood, core.satisfaction, core.orgasm_count, core.ejaculation_count, JSON.stringify(extra), new Date().toISOString()).run();
   return jsonResponse({ message: '创建成功', id });
 }
 
 async function updateRecord(req, env, user) {
   const data = await req.json();
   if (!data.id) return errorResponse('缺少ID');
-  
   const existing = await env.DB.prepare('SELECT id FROM records WHERE id = ? AND uid = ?').bind(data.id, user.uid).first();
   if (!existing) return errorResponse('无权修改', 403);
-
   const { core, extra } = splitData(data, user.uid, data.id);
-
-  await env.DB.prepare(`
-    UPDATE records SET 
-      activity_type = ?, datetime = ?, duration = ?, location = ?, mood = ?, 
-      satisfaction = ?, orgasm_count = ?, ejaculation_count = ?, data_json = ?
-    WHERE id = ? AND uid = ?
-  `).bind(
-    core.activity_type, core.datetime, core.duration, core.location, core.mood,
-    core.satisfaction, core.orgasm_count, core.ejaculation_count, JSON.stringify(extra),
-    core.id, core.uid
-  ).run();
-
+  await env.DB.prepare(`UPDATE records SET activity_type = ?, datetime = ?, duration = ?, location = ?, mood = ?, satisfaction = ?, orgasm_count = ?, ejaculation_count = ?, data_json = ? WHERE id = ? AND uid = ?`).bind(core.activity_type, core.datetime, core.duration, core.location, core.mood, core.satisfaction, core.orgasm_count, core.ejaculation_count, JSON.stringify(extra), core.id, core.uid).run();
   return jsonResponse({ message: '更新成功' });
 }
 
@@ -148,29 +112,15 @@ async function deleteRecord(url, env, user) {
 async function getStatistics(url, env, user) {
   const range = url.searchParams.get('range') || 'all';
   let timeFilter = '';
-  
   if (range === 'month') timeFilter = " AND datetime >= datetime('now', 'start of month')";
   else if (range === 'year') timeFilter = " AND datetime >= datetime('now', '-1 year')";
   else if (range === '3_months') timeFilter = " AND datetime >= datetime('now', '-3 months')";
-
-  const sql = `
-    SELECT 
-      count(*) as total_records,
-      sum(case when activity_type = 'masturbation' then 1 else 0 end) as masturbation,
-      sum(case when activity_type = 'intercourse' then 1 else 0 end) as intercourse,
-      sum(orgasm_count) as total_orgasms,
-      avg(satisfaction) as avg_satisfaction,
-      avg(duration) as avg_duration
-    FROM records WHERE uid = ? ${timeFilter}
-  `;
-  
+  const sql = `SELECT count(*) as total_records, sum(case when activity_type = 'masturbation' then 1 else 0 end) as masturbation, sum(case when activity_type = 'intercourse' then 1 else 0 end) as intercourse, sum(orgasm_count) as total_orgasms, avg(satisfaction) as avg_satisfaction, avg(duration) as avg_duration FROM records WHERE uid = ? ${timeFilter}`;
   const stats = await env.DB.prepare(sql).bind(user.uid).first();
   const monthSql = `SELECT strftime('%Y-%m', datetime) as month, count(*) as count FROM records WHERE uid = ? ${timeFilter} GROUP BY month ORDER BY month DESC LIMIT 12`;
   const monthRes = await env.DB.prepare(monthSql).bind(user.uid).all();
-  
   const records_by_month = {};
   if(monthRes.results) [...monthRes.results].reverse().forEach(row => records_by_month[row.month] = row.count);
-
   return jsonResponse({
     total_records: stats.total_records || 0,
     masturbation: stats.masturbation || 0,
@@ -183,25 +133,16 @@ async function getStatistics(url, env, user) {
 }
 
 async function getLeaderboard(env) {
-    const { results } = await env.DB.prepare(`
-      SELECT u.username, count(r.id) as total_records, sum(r.duration) as total_duration
-      FROM records r JOIN users u ON r.uid = u.uid
-      GROUP BY u.uid ORDER BY total_duration DESC LIMIT 50
-    `).all();
+    const { results } = await env.DB.prepare(`SELECT u.username, count(r.id) as total_records, sum(r.duration) as total_duration FROM records r JOIN users u ON r.uid = u.uid GROUP BY u.uid ORDER BY total_duration DESC LIMIT 50`).all();
     return jsonResponse(results);
 }
 
-// User Funcs
+// User & Auth
 async function registerUser(req, env) {
   const { username, password } = await req.json();
   if (!username || !password || username.length < 3) return errorResponse('无效参数');
-  try {
-    await env.DB.prepare('INSERT INTO users (uid, username, password_hash) VALUES (?, ?, ?)')
-      .bind(generateId(), username, await hashPassword(password)).run();
-    return jsonResponse({ message: '注册成功' });
-  } catch (e) { return errorResponse('用户名已存在'); }
+  try { await env.DB.prepare('INSERT INTO users (uid, username, password_hash) VALUES (?, ?, ?)').bind(generateId(), username, await hashPassword(password)).run(); return jsonResponse({ message: '注册成功' }); } catch (e) { return errorResponse('用户名已存在'); }
 }
-
 async function loginUser(req, env) {
   const { username, password } = await req.json();
   const user = await env.DB.prepare('SELECT * FROM users WHERE username = ?').bind(username).first();
@@ -209,7 +150,6 @@ async function loginUser(req, env) {
   const token = await signJwt({ uid: user.uid, username: user.username }, env.JWT_SECRET || DEFAULT_JWT_SECRET);
   return jsonResponse({ token, username });
 }
-
 async function changePassword(req, env, user) {
   const { oldPassword, newPassword } = await req.json();
   const dbUser = await env.DB.prepare('SELECT password_hash FROM users WHERE uid = ?').bind(user.uid).first();
@@ -223,10 +163,7 @@ function splitData(data, uid, id) {
     const coreMap = ['activity_type','datetime','duration','location','mood','satisfaction','orgasm_count','ejaculation_count'];
     const core = { uid, id, duration:0, satisfaction:0, orgasm_count:0, ejaculation_count:0 };
     const extra = {};
-    for (let k in data) {
-        if (coreMap.includes(k)) core[k] = data[k];
-        else if (k !== 'id' && k !== 'uid' && k !== 'created_at') extra[k] = data[k];
-    }
+    for (let k in data) { if (coreMap.includes(k)) core[k] = data[k]; else if (k !== 'id' && k !== 'uid' && k !== 'created_at') extra[k] = data[k]; }
     ['duration','satisfaction','orgasm_count','ejaculation_count'].forEach(k => core[k] = parseInt(core[k]) || 0);
     return { core, extra };
 }
@@ -241,7 +178,7 @@ function errorResponse(msg, status = 400) { return jsonResponse({ error: msg }, 
 function generateId() { return Date.now().toString(36) + Math.random().toString(36).substring(2, 6); }
 
 // ==========================================
-// 前端 HTML (Pro版: 修复UI逻辑)
+// 前端 HTML (v7.2 Pro: 沉浸计时器 + 时光轴)
 // ==========================================
 async function serveFrontend() {
   const html = `
@@ -257,82 +194,86 @@ async function serveFrontend() {
   <style>
     :root {
       --bg-deep: #050505;
-      --primary: #d946ef; /* Fuchsia */
-      --secondary: #8b5cf6; /* Violet */
-      --accent: #f43f5e; /* Rose */
-      --glass-surface: rgba(25, 25, 30, 0.75);
-      --glass-border: rgba(255, 255, 255, 0.1);
-      --text-main: #f3f4f6;
-      --text-muted: #9ca3af;
+      --primary: #d946ef; --secondary: #8b5cf6; --accent: #f43f5e;
+      --glass-surface: rgba(25, 25, 30, 0.75); --glass-border: rgba(255, 255, 255, 0.1);
+      --text-main: #f3f4f6; --text-muted: #9ca3af;
     }
     * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; outline: none; }
     body { margin: 0; background-color: var(--bg-deep); color: var(--text-main); font-family: 'Montserrat', sans-serif; min-height: 100vh; padding-bottom: 95px; }
-
-    /* 背景流光 */
-    .ambient-bg { position: fixed; top: 0; left: 0; width: 100%; height: 100%; z-index: -2; background: radial-gradient(circle at 10% 20%, #1a0b2e 0%, transparent 40%), radial-gradient(circle at 90% 80%, #2e0b1f 0%, transparent 40%), linear-gradient(to bottom, #0a0a0a, #050505); animation: bgPulse 10s ease-in-out infinite alternate; }
-    @keyframes bgPulse { 0% { opacity: 0.7; } 100% { opacity: 1; } }
-
+    
+    .ambient-bg { position: fixed; top: 0; left: 0; width: 100%; height: 100%; z-index: -2; background: radial-gradient(circle at 10% 20%, #1a0b2e 0%, transparent 40%), radial-gradient(circle at 90% 80%, #2e0b1f 0%, transparent 40%), linear-gradient(to bottom, #0a0a0a, #050505); }
+    
     /* 核心组件 */
     .glass { background: var(--glass-surface); backdrop-filter: blur(15px); -webkit-backdrop-filter: blur(15px); border: 1px solid var(--glass-border); box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4); }
     .card { border-radius: 16px; padding: 20px; margin-bottom: 15px; position: relative; overflow: hidden; }
-    .btn { background: linear-gradient(135deg, var(--primary), var(--secondary)); color: white; border: none; border-radius: 12px; padding: 12px; font-weight: 600; width: 100%; cursor: pointer; transition: transform 0.2s; box-shadow: 0 4px 15px rgba(217, 70, 239, 0.3); }
+    .btn { background: linear-gradient(135deg, var(--primary), var(--secondary)); color: white; border: none; border-radius: 12px; padding: 12px; font-weight: 600; width: 100%; cursor: pointer; transition: 0.2s; box-shadow: 0 4px 15px rgba(217, 70, 239, 0.3); }
     .btn:active { transform: scale(0.97); }
     .btn-outline { background: transparent; border: 1px solid rgba(255,255,255,0.2); box-shadow: none; }
-    
     .container { max-width: 800px; margin: 0 auto; padding: 20px; }
     .hidden { display: none !important; }
     
-    /* 统计看板 (恢复完整信息) */
+    /* 沉浸式计时器全屏层 */
+    #immersiveTimer { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: #000; z-index: 2000; display: none; flex-direction: column; align-items: center; justify-content: center; }
+    .timer-display { font-family: 'Cinzel', monospace; font-size: 4rem; font-weight: bold; color: #fff; text-shadow: 0 0 20px var(--primary); margin-bottom: 40px; font-variant-numeric: tabular-nums; }
+    .timer-btn-stop { width: 80px; height: 80px; border-radius: 50%; border: 2px solid var(--accent); background: rgba(244, 63, 94, 0.1); color: var(--accent); font-size: 1.5rem; cursor: pointer; display: flex; align-items: center; justify-content: center; transition: 0.3s; }
+    .timer-btn-stop:active { background: var(--accent); color: #fff; transform: scale(0.9); }
+    .pulse-ring { position: absolute; width: 200px; height: 200px; border-radius: 50%; border: 1px solid rgba(217, 70, 239, 0.3); animation: pulse 2s infinite; z-index: -1; }
+    @keyframes pulse { 0% { transform: scale(0.8); opacity: 1; } 100% { transform: scale(1.5); opacity: 0; } }
+
+    /* 时光轴 (History) */
+    .timeline { position: relative; padding-left: 20px; border-left: 2px solid rgba(255,255,255,0.1); margin-left: 10px; }
+    .timeline-item { position: relative; margin-bottom: 30px; }
+    .timeline-dot { position: absolute; left: -26px; top: 0; width: 10px; height: 10px; border-radius: 50%; background: var(--bg-deep); border: 2px solid var(--primary); }
+    .timeline-date { font-size: 0.8rem; color: var(--primary); font-weight: bold; margin-bottom: 5px; }
+    .timeline-content { background: rgba(255,255,255,0.03); border-radius: 12px; padding: 12px; border: 1px solid rgba(255,255,255,0.05); }
+
+    /* 底部 Dock (新增 History) */
+    .dock-nav { position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%); width: 95%; max-width: 480px; height: 65px; background: rgba(20, 20, 25, 0.9); backdrop-filter: blur(20px); border: 1px solid rgba(255,255,255,0.1); border-radius: 35px; display: flex; justify-content: space-evenly; align-items: center; z-index: 100; box-shadow: 0 10px 30px rgba(0,0,0,0.6); }
+    .dock-item { display: flex; flex-direction: column; align-items: center; color: #666; font-size: 0.6rem; gap: 4px; transition: 0.3s; width: 50px; cursor: pointer; }
+    .dock-item svg { width: 20px; height: 20px; stroke: currentColor; stroke-width: 2; fill: none; transition: 0.3s; }
+    .dock-item.active { color: var(--primary); }
+    .dock-item.active svg { transform: translateY(-3px); stroke: var(--primary); }
+    .dock-fab { width: 48px; height: 48px; background: var(--primary); border-radius: 50%; display: flex; align-items: center; justify-content: center; margin-top: -30px; border: 4px solid var(--bg-deep); color: #fff; font-size: 1.5rem; box-shadow: 0 0 15px var(--primary); cursor: pointer; }
+
+    /* 通用样式补全 */
     .stats-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px; margin-bottom: 20px; }
     .stat-box { background: rgba(255,255,255,0.03); padding: 15px; border-radius: 16px; text-align: center; border: 1px solid rgba(255,255,255,0.05); }
     .stat-val { font-family: 'Cinzel', serif; font-size: 1.6rem; color: #fff; text-shadow: 0 0 10px rgba(255,255,255,0.3); }
     .stat-label { font-size: 0.7rem; color: var(--text-muted); margin-top: 4px; text-transform: uppercase; }
-
-    /* 列表卡片 */
-    .record-card { display: flex; align-items: center; padding: 16px; border-radius: 16px; background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.05); margin-bottom: 10px; transition: 0.2s; cursor: pointer; }
-    .record-card:active { background: rgba(255,255,255,0.07); }
-    .record-icon { width: 44px; height: 44px; border-radius: 12px; display: flex; align-items: center; justify-content: center; font-size: 1.4rem; margin-right: 15px; background: rgba(0,0,0,0.3); flex-shrink: 0; }
-    .type-m .record-icon { color: var(--primary); box-shadow: inset 0 0 10px rgba(217, 70, 239, 0.2); }
-    .type-i .record-icon { color: var(--accent); box-shadow: inset 0 0 10px rgba(244, 63, 94, 0.2); }
-
-    /* 底部 Dock (增加个人中心) */
-    .dock-nav { position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%); width: 92%; max-width: 450px; height: 65px; background: rgba(20, 20, 25, 0.9); backdrop-filter: blur(20px); border: 1px solid rgba(255,255,255,0.1); border-radius: 35px; display: flex; justify-content: space-evenly; align-items: center; z-index: 100; box-shadow: 0 10px 30px rgba(0,0,0,0.6); }
-    .dock-item { display: flex; flex-direction: column; align-items: center; color: #666; font-size: 0.65rem; gap: 4px; transition: 0.3s; width: 60px; cursor: pointer; }
-    .dock-item svg { width: 22px; height: 22px; stroke: currentColor; stroke-width: 2; fill: none; transition: 0.3s; }
-    .dock-item.active { color: var(--primary); }
-    .dock-item.active svg { transform: translateY(-3px); stroke: var(--primary); filter: drop-shadow(0 0 8px var(--primary)); }
-    .dock-fab { width: 48px; height: 48px; background: var(--primary); border-radius: 50%; display: flex; align-items: center; justify-content: center; margin-top: -30px; border: 4px solid var(--bg-deep); color: #fff; font-size: 1.5rem; box-shadow: 0 0 15px var(--primary); cursor: pointer; }
-
-    /* 表单与弹窗 */
+    
     .modal-overlay { position: fixed; top: 0; left: 0; width: 100%; height: 100%; z-index: 200; background: rgba(0,0,0,0.8); backdrop-filter: blur(5px); display: none; align-items: flex-end; justify-content: center; }
     .modal-content { width: 100%; max-width: 600px; background: #111; border-radius: 24px 24px 0 0; padding: 25px 20px 40px; max-height: 90vh; overflow-y: auto; border-top: 1px solid #333; animation: slideUp 0.3s ease; }
     @keyframes slideUp { from { transform: translateY(100%); } to { transform: translateY(0); } }
 
-    /* 分段控制器 (类型切换) */
     .segment-control { display: flex; background: #222; border-radius: 12px; padding: 4px; margin-bottom: 20px; border: 1px solid #333; }
     .segment-opt { flex: 1; text-align: center; padding: 10px; border-radius: 10px; color: #888; font-weight: 600; cursor: pointer; transition: 0.3s; }
-    .segment-opt.active { background: #333; color: #fff; box-shadow: 0 2px 8px rgba(0,0,0,0.3); }
+    .segment-opt.active { background: #333; color: #fff; }
     .segment-opt.active[data-val="masturbation"] { background: var(--primary); }
     .segment-opt.active[data-val="intercourse"] { background: var(--accent); }
-
-    /* 表单控件 */
     .input-row { display: flex; gap: 12px; margin-bottom: 12px; }
     .form-group { margin-bottom: 15px; flex: 1; }
-    label { display: block; font-size: 0.8rem; color: #aaa; margin-bottom: 6px; margin-left: 2px; }
+    label { display: block; font-size: 0.8rem; color: #aaa; margin-bottom: 6px; }
     input, select, textarea { width: 100%; background: #222; border: 1px solid #333; color: #fff; padding: 12px; border-radius: 10px; font-size: 0.95rem; font-family: inherit; }
-    input:focus, select:focus, textarea:focus { border-color: #555; }
-    
-    /* 标签复选框 */
     .tag-group { display: flex; flex-wrap: wrap; gap: 8px; }
     .tag-cb input { display: none; }
     .tag-cb label { display: inline-block; padding: 6px 14px; background: rgba(255,255,255,0.05); border-radius: 20px; font-size: 0.8rem; color: #ccc; cursor: pointer; border: 1px solid transparent; transition: 0.2s; }
-    .tag-cb input:checked + label { background: rgba(255,255,255,0.15); border-color: var(--primary); color: #fff; text-shadow: 0 0 5px var(--primary); }
-
+    .tag-cb input:checked + label { background: rgba(255,255,255,0.15); border-color: var(--primary); color: #fff; }
+    .record-card { display: flex; align-items: center; padding: 16px; border-radius: 16px; background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.05); margin-bottom: 10px; transition: 0.2s; cursor: pointer; }
+    .record-icon { width: 44px; height: 44px; border-radius: 12px; display: flex; align-items: center; justify-content: center; font-size: 1.4rem; margin-right: 15px; background: rgba(0,0,0,0.3); flex-shrink: 0; }
     .user-avatar { width: 80px; height: 80px; border-radius: 50%; background: linear-gradient(135deg, var(--primary), var(--secondary)); margin: 0 auto 15px; display: flex; align-items: center; justify-content: center; font-size: 2rem; border: 4px solid rgba(255,255,255,0.1); }
   </style>
 </head>
 <body>
   <div class="ambient-bg"></div>
+
+  <!-- 全屏沉浸计时器 -->
+  <div id="immersiveTimer">
+      <div class="pulse-ring"></div>
+      <div style="color:#aaa; font-size:0.9rem; margin-bottom:10px; letter-spacing:2px;">SESSION TIME</div>
+      <div id="imTimerDisplay" class="timer-display">00:00:00</div>
+      <div class="timer-btn-stop" onclick="stopTimer()">⏹</div>
+      <div style="margin-top:20px; color:#555; font-size:0.8rem;">Focus on the moment</div>
+  </div>
 
   <!-- 登录页 -->
   <div id="authScreen" style="position:fixed; top:0; left:0; width:100%; height:100%; z-index:1000; background:#050505; display:flex; flex-direction:column; align-items:center; justify-content:center; padding:30px;">
@@ -346,58 +287,47 @@ async function serveFrontend() {
     </div>
   </div>
 
-  <!-- 主界面 -->
   <div id="app" class="container hidden">
     <!-- 头部 -->
     <header style="display:flex; justify-content:space-between; align-items:center; margin-bottom:20px;">
        <h2 style="font-family:'Cinzel'; margin:0; font-size:1.4rem;">My Garden</h2>
-       <div id="headerDate" style="font-size:0.8rem; color:#666;"></div>
+       <div style="display:flex; align-items:center; gap:10px;">
+           <span id="headerDate" style="font-size:0.8rem; color:#666;"></span>
+           <!-- 顶部快速开始计时按钮 -->
+           <button onclick="startTimer()" style="background:rgba(255,255,255,0.1); border:none; color:var(--primary); width:32px; height:32px; border-radius:50%; display:flex; align-items:center; justify-content:center; cursor:pointer;">⏱️</button>
+       </div>
     </header>
 
-    <!-- 视图：首页 (看板 + 列表) -->
-    <div id="view-home">
-       <!-- 完整数据看板 -->
-       <div class="stats-grid">
-         <div class="stat-box">
-            <div class="stat-val" id="sTotal">0</div>
-            <div class="stat-label">总次数</div>
-         </div>
-         <div class="stat-box">
-            <div class="stat-val" id="sDuration">0</div>
-            <div class="stat-label">平均时长 (分)</div>
-         </div>
-         <div class="stat-box">
-            <div class="stat-val" id="sScore">0</div>
-            <div class="stat-label">平均满意度</div>
-         </div>
-         <div class="stat-box">
-            <div class="stat-val" id="sOrgasm" style="color:var(--primary);">0</div>
-            <div class="stat-label">总高潮次数</div>
-         </div>
-       </div>
+    <!-- 视图：时光轴 (History) - 新增 -->
+    <div id="view-history" class="hidden">
+       <h3 style="font-family:'Cinzel'; border-bottom:1px solid #333; padding-bottom:10px;">Timeline</h3>
+       <div id="timelineContainer" class="timeline"></div>
+       <div id="historySentinel" style="text-align:center; padding:10px; color:#555; font-size:0.8rem;">Load More</div>
+    </div>
 
-       <!-- 图表 -->
+    <!-- 视图：首页 (Home) -->
+    <div id="view-home">
+       <div class="stats-grid">
+         <div class="stat-box"><div class="stat-val" id="sTotal">0</div><div class="stat-label">总次数</div></div>
+         <div class="stat-box"><div class="stat-val" id="sDuration">0</div><div class="stat-label">均时长 (分)</div></div>
+         <div class="stat-box"><div class="stat-val" id="sScore">0</div><div class="stat-label">满意度</div></div>
+         <div class="stat-box"><div class="stat-val" id="sOrgasm" style="color:var(--primary);">0</div><div class="stat-label">总高潮</div></div>
+       </div>
        <div class="glass card" style="height:200px; display:flex; gap:10px; padding:15px;">
           <div style="flex:1; position:relative;"><canvas id="chartHistory"></canvas></div>
           <div style="width:90px; position:relative;"><canvas id="chartType"></canvas></div>
        </div>
-
-       <!-- 搜索与筛选 -->
        <div style="display:flex; gap:10px; margin-bottom:15px;">
           <input type="text" id="searchInput" placeholder="搜索..." style="flex:1;">
           <select id="statsRange" style="width:100px;" onchange="loadStats(this.value)">
-             <option value="all">全部</option>
-             <option value="month">本月</option>
-             <option value="3_months">近3月</option>
-             <option value="year">今年</option>
+             <option value="all">全部</option><option value="month">本月</option><option value="3_months">近3月</option><option value="year">今年</option>
           </select>
        </div>
-
        <div id="listContainer"></div>
        <div id="scrollSentinel" style="text-align:center; padding:20px; font-size:0.8rem; color:#555;">加载中...</div>
     </div>
 
-    <!-- 视图：排行榜 -->
+    <!-- 视图：榜单 -->
     <div id="view-leaderboard" class="hidden">
        <h3 style="font-family:'Cinzel'; border-bottom:1px solid #333; padding-bottom:10px;">Hall of Fame</h3>
        <table style="width:100%; border-collapse:collapse; color:#ccc; font-size:0.9rem;">
@@ -406,32 +336,29 @@ async function serveFrontend() {
        </table>
     </div>
 
-    <!-- 视图：个人中心 (新增) -->
+    <!-- 视图：个人中心 -->
     <div id="view-profile" class="hidden">
        <div class="glass card" style="text-align:center; margin-top:20px;">
           <div class="user-avatar">👤</div>
           <h2 id="profileUser" style="margin:0 0 5px 0;">User</h2>
           <div style="font-size:0.8rem; color:#666;">Secret Garden Member</div>
        </div>
-
        <div class="card" style="background:rgba(255,255,255,0.02);">
           <h4 style="margin:0 0 15px 0; border-bottom:1px solid #333; padding-bottom:10px;">安全设置</h4>
-          <div class="form-group">
-             <input type="password" id="p-old" placeholder="当前密码">
-          </div>
-          <div class="form-group">
-             <input type="password" id="p-new" placeholder="新密码 (至少5位)">
-          </div>
+          <div class="form-group"><input type="password" id="p-old" placeholder="当前密码"></div>
+          <div class="form-group"><input type="password" id="p-new" placeholder="新密码 (至少5位)"></div>
           <button class="btn btn-outline" onclick="changePassword()">修改密码</button>
        </div>
-
        <button class="btn" style="background:#333; color:#aaa; margin-top:20px;" onclick="logout()">退出登录</button>
-       <div style="text-align:center; margin-top:30px; font-size:0.7rem; color:#444;">v7.1 Pro Remastered</div>
     </div>
   </div>
 
-  <!-- 底部 Dock 导航 -->
+  <!-- 底部 Dock 导航 (5个按钮) -->
   <div class="dock-nav" id="dockNav">
+    <div class="dock-item" onclick="switchView('history', this)">
+      <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"></circle><polyline points="12 6 12 12 16 14"></polyline></svg>
+      <span>历史</span>
+    </div>
     <div class="dock-item active" onclick="switchView('home', this)">
       <svg viewBox="0 0 24 24"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"></path><polyline points="9 22 9 12 15 12 15 22"></polyline></svg>
       <span>首页</span>
@@ -440,7 +367,7 @@ async function serveFrontend() {
       <span style="font-size:2rem; line-height:1;">+</span>
     </div>
     <div class="dock-item" onclick="switchView('leaderboard', this)">
-      <svg viewBox="0 0 24 24"><path d="M6 9H4.5a2.5 2.5 0 0 1 0-5H6"></path><path d="M18 9h1.5a2.5 2.5 0 0 0 0-5H18"></path><path d="M4 22h16"></path><path d="M10 14.66V17c0 .55-.47.98-.97 1.21C7.85 18.75 7 20.24 7 22"></path><path d="M14 14.66V17c0 .55.47.98.97 1.21C16.15 18.75 17 20.24 17 22"></path><path d="M18 2H6v7a6 6 0 0 0 12 0V2Z"></path></svg>
+      <svg viewBox="0 0 24 24"><path d="M6 9H4.5a2.5 2.5 0 0 1 0-5H6"></path><path d="M18 9h1.5a2.5 2.5 0 0 0 0-5H18"></path><path d="M4 22h16"></path></svg>
       <span>榜单</span>
     </div>
     <div class="dock-item" onclick="switchView('profile', this)">
@@ -449,7 +376,7 @@ async function serveFrontend() {
     </div>
   </div>
 
-  <!-- 记录编辑器弹窗 -->
+  <!-- 记录编辑器弹窗 (复用 v7.1) -->
   <div id="modalOverlay" class="modal-overlay">
     <div class="modal-content">
        <div style="display:flex; justify-content:space-between; margin-bottom:15px;">
@@ -457,22 +384,16 @@ async function serveFrontend() {
           <span onclick="closeModal()" style="font-size:1.5rem; color:#666; cursor:pointer;">&times;</span>
        </div>
        <input type="hidden" id="recordId">
-
-       <!-- 类型切换: 分段控制器 -->
        <div class="segment-control">
           <div class="segment-opt active" data-val="masturbation" onclick="setActType('masturbation')">🖐 独享 (自慰)</div>
           <div class="segment-opt" data-val="intercourse" onclick="setActType('intercourse')">❤️ 欢愉 (性爱)</div>
        </div>
        <input type="hidden" id="actType" value="masturbation">
-
-       <!-- 通用字段 -->
        <div class="form-group"><label>时间</label><input type="datetime-local" id="datetime"></div>
        <div class="input-row">
           <div class="form-group"><label>地点</label><select id="location"><option value="bedroom">卧室</option><option value="living_room">客厅</option><option value="bathroom">浴室</option><option value="hotel">酒店</option><option value="car">车内</option><option value="outdoor">野战</option><option value="office">办公室</option><option value="other">其他</option></select></div>
           <div class="form-group"><label>心情</label><select id="mood"><option value="horny">🔥 性致勃勃</option><option value="lonely">🌑 孤独</option><option value="stressed">😫 压力释放</option><option value="bored">🥱 无聊</option><option value="drunk">🍷 微醺</option><option value="morning_wood">🌅 晨勃</option></select></div>
        </div>
-
-       <!-- 独享特定字段 -->
        <div id="secMasturbation">
           <div class="form-group"><label>助兴素材</label><select id="stimulation"><option value="none">纯想象</option><option value="porn_pov">POV视角</option><option value="porn_amateur">素人/自拍</option><option value="hentai">二次元</option><option value="erotica">色情文学</option><option value="audio">娇喘/ASMR</option><option value="toy_lube">润滑油</option></select></div>
           <div class="form-group"><label>玩法</label>
@@ -485,8 +406,6 @@ async function serveFrontend() {
              </div>
           </div>
        </div>
-
-       <!-- 欢愉特定字段 (完整回归) -->
        <div id="secIntercourse" class="hidden">
           <div class="input-row">
              <div class="form-group"><label>伴侣姓名</label><input type="text" id="partnerName" placeholder="Name"></div>
@@ -504,8 +423,6 @@ async function serveFrontend() {
              </div>
           </div>
        </div>
-
-       <!-- 滑动条数据 -->
        <div style="background:#222; border-radius:12px; padding:15px; margin-bottom:15px;">
           <div style="display:flex; justify-content:space-between; margin-bottom:5px;">
              <span style="font-size:0.8rem; color:#aaa;">时长: <span id="vDur" style="color:#fff; font-size:1rem;">15</span> min</span>
@@ -514,14 +431,11 @@ async function serveFrontend() {
           <input type="range" id="duration" min="0" max="180" step="1" value="15" oninput="document.getElementById('vDur').innerText=this.value" style="margin-bottom:10px;">
           <input type="range" id="satisfaction" min="1" max="10" step="1" value="5" oninput="document.getElementById('vSat').innerText=this.value">
        </div>
-
        <div class="input-row">
           <div class="form-group"><label>高潮次数</label><input type="number" id="orgasmCount" value="1"></div>
           <div class="form-group"><label>射精次数</label><input type="number" id="ejaculationCount" value="1"></div>
        </div>
-       
        <div class="form-group"><label>备注/日记</label><textarea id="experience" rows="3" placeholder="写下感受..."></textarea></div>
-
        <div style="height:20px;"></div>
        <button class="btn" style="height:50px;" onclick="saveRecord()">保存记录</button>
     </div>
@@ -535,9 +449,10 @@ async function serveFrontend() {
     let token = localStorage.getItem('sg_token');
     let user = localStorage.getItem('sg_user');
     let currentPage = 1, isLoading = false, hasMore = true;
+    let historyPage = 1, historyLoading = false, historyHasMore = true;
     let chart1, chart2;
+    let timerInterval = null;
 
-    // 初始化
     (function() {
       if(token) {
         document.getElementById('authScreen').style.display='none';
@@ -545,16 +460,14 @@ async function serveFrontend() {
         document.getElementById('profileUser').innerText = user;
         loadStats();
         setupInfiniteScroll();
-        
-        // 搜索防抖
-        let t;
-        document.getElementById('searchInput').addEventListener('input', ()=>{ clearTimeout(t); t=setTimeout(()=>{resetList();loadRecords();},500); });
+        checkTimerState(); // 恢复计时器状态
+        let t; document.getElementById('searchInput').addEventListener('input', ()=>{ clearTimeout(t); t=setTimeout(()=>{resetList();loadRecords();},500); });
       }
     })();
 
     function getHeaders() { return { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + token }; }
 
-    // --- 认证 ---
+    // Auth
     async function doLogin() {
        const u = document.getElementById('lg-user').value, p = document.getElementById('lg-pass').value;
        const r = await fetch(API+'/auth/login', { method:'POST', body:JSON.stringify({username:u, password:p}) });
@@ -575,199 +488,184 @@ async function serveFrontend() {
         const d = await r.json(); alert(d.error || d.message);
     }
 
-    // --- 核心 ---
+    // --- Stats & Home List ---
     async function loadStats(range='all') {
         const r = await fetch(API+'/statistics?range='+range, { headers: getHeaders() });
         const s = await r.json();
         if(s.error === 'Unauthorized') return logout();
-        
-        // 1. 填充看板 (修复缺失)
         document.getElementById('sTotal').innerText = s.total_records;
         document.getElementById('sDuration').innerText = Math.round(s.avg_duration);
         document.getElementById('sScore').innerText = s.avg_satisfaction;
         document.getElementById('sOrgasm').innerText = s.total_orgasms;
         
-        // 2. 图表
         Chart.defaults.color = '#666';
-        if(chart1) chart1.destroy();
-        if(chart2) chart2.destroy();
-        
+        if(chart1) chart1.destroy(); if(chart2) chart2.destroy();
         const ctx1 = document.getElementById('chartType').getContext('2d');
-        chart1 = new Chart(ctx1, {
-            type: 'doughnut',
-            data: { labels: ['自慰','性爱'], datasets: [{ data: [s.masturbation, s.intercourse], backgroundColor: ['#d946ef', '#f43f5e'], borderWidth: 0 }] },
-            options: { maintainAspectRatio:false, cutout: '75%', plugins: { legend: { display: false } } }
-        });
-
+        chart1 = new Chart(ctx1, { type: 'doughnut', data: { labels: ['自慰','性爱'], datasets: [{ data: [s.masturbation, s.intercourse], backgroundColor: ['#d946ef', '#f43f5e'], borderWidth: 0 }] }, options: { maintainAspectRatio:false, cutout: '75%', plugins: { legend: { display: false } } } });
         const ctx2 = document.getElementById('chartHistory').getContext('2d');
         const labels = Object.keys(s.records_by_month).sort();
-        const data = labels.map(k => s.records_by_month[k]);
-        
-        chart2 = new Chart(ctx2, {
-            type: 'bar',
-            data: { labels: labels.map(l=>l.slice(5)), datasets: [{ label: 'Count', data: data, backgroundColor: '#8b5cf6', borderRadius: 4 }] },
-            options: { maintainAspectRatio:false, scales: { x: { grid: {display:false} }, y: { display:false } }, plugins: { legend: {display:false} } }
-        });
-        
+        chart2 = new Chart(ctx2, { type: 'bar', data: { labels: labels.map(l=>l.slice(5)), datasets: [{ label: 'Count', data: labels.map(k => s.records_by_month[k]), backgroundColor: '#8b5cf6', borderRadius: 4 }] }, options: { maintainAspectRatio:false, scales: { x: { grid: {display:false} }, y: { display:false } }, plugins: { legend: {display:false} } } });
         if(currentPage===1) loadRecords();
     }
-
     function resetList() { currentPage=1; hasMore=true; document.getElementById('listContainer').innerHTML=''; }
     async function loadRecords() {
-        if(isLoading || !hasMore) return;
-        isLoading = true;
+        if(isLoading || !hasMore) return; isLoading = true;
         const q = document.getElementById('searchInput').value;
         const r = await fetch(\`\${API}/records?page=\${currentPage}&search=\${q}\`, { headers: getHeaders() });
         const d = await r.json();
-        
         if(d.records.length === 0) { hasMore=false; document.getElementById('scrollSentinel').innerText = '—— End ——'; }
         else { d.records.forEach(renderItem); currentPage++; }
         isLoading = false;
     }
-
     function renderItem(item) {
         const isM = item.activity_type === 'masturbation';
         const d = new Date(item.datetime);
         const dateStr = \`\${d.getMonth()+1}/\${d.getDate()} \${d.getHours()}:\${d.getMinutes().toString().padStart(2,'0')}\`;
-        
-        let tags = [];
-        if(item.mood) tags.push(tr(item.mood));
-        if(isM && item.stimulation && item.stimulation!=='none') tags.push(tr(item.stimulation));
-        if(!isM && item.partner_name) tags.push('With: '+item.partner_name);
-
-        const html = \`
-        <div class="record-card \${isM?'type-m':'type-i'}" onclick="editRecord('\${item.id}')">
-            <div class="record-icon">\${isM ? '🖐' : '❤️'}</div>
-            <div style="flex:1;">
-                <div style="display:flex; justify-content:space-between; color:#eee; font-weight:600; margin-bottom:4px;">
-                   <span>\${tr(item.location||'unknown')}</span>
-                   <span style="color:\${isM?'var(--primary)':'var(--accent)'}">\${item.duration}'</span>
-                </div>
-                <div style="font-size:0.8rem; color:#888;">\${dateStr} · \${item.satisfaction}/10</div>
-                <div style="margin-top:6px; display:flex; gap:6px; flex-wrap:wrap;">\${tags.map(t=>\`<span style="background:rgba(255,255,255,0.1); padding:2px 6px; border-radius:4px; font-size:0.7rem;">\${t}</span>\`).join('')}</div>
-            </div>
-        </div>\`;
+        let tags = []; if(item.mood) tags.push(tr(item.mood)); if(isM && item.stimulation) tags.push(tr(item.stimulation));
+        const html = \`<div class="record-card \${isM?'type-m':'type-i'}" onclick="editRecord('\${item.id}')"><div class="record-icon">\${isM ? '🖐' : '❤️'}</div><div style="flex:1;"><div style="display:flex; justify-content:space-between; color:#eee; font-weight:600; margin-bottom:4px;"><span>\${tr(item.location||'unknown')}</span><span style="color:\${isM?'var(--primary)':'var(--accent)'}">\${item.duration}'</span></div><div style="font-size:0.8rem; color:#888;">\${dateStr} · \${item.satisfaction}/10</div><div style="margin-top:6px; display:flex; gap:6px; flex-wrap:wrap;">\${tags.map(t=>\`<span style="background:rgba(255,255,255,0.1); padding:2px 6px; border-radius:4px; font-size:0.7rem;">\${t}</span>\`).join('')}</div></div></div>\`;
         document.getElementById('listContainer').insertAdjacentHTML('beforeend', html);
     }
 
-    // --- 表单与弹窗逻辑 ---
+    // --- History Timeline Logic (New) ---
+    async function loadHistory() {
+        if(historyLoading || !historyHasMore) return; historyLoading = true;
+        const r = await fetch(\`\${API}/records?page=\${historyPage}\`, { headers: getHeaders() });
+        const d = await r.json();
+        const c = document.getElementById('timelineContainer');
+        if(d.records.length === 0) { historyHasMore=false; document.getElementById('historySentinel').innerText = 'The Beginning of Time'; }
+        else {
+            d.records.forEach(item => {
+                const isM = item.activity_type === 'masturbation';
+                const d = new Date(item.datetime);
+                const timeStr = \`\${d.getFullYear()}-\${d.getMonth()+1}-\${d.getDate()} \${d.getHours()}:\${d.getMinutes().toString().padStart(2,'0')}\`;
+                const html = \`<div class="timeline-item"><div class="timeline-dot" style="border-color:\${isM?'var(--primary)':'var(--accent)'}"></div><div class="timeline-date">\${timeStr}</div><div class="timeline-content" onclick="editRecord('\${item.id}')"><div style="display:flex; justify-content:space-between; margin-bottom:5px;"><strong style="color:#fff">\${isM?'独享':'欢愉'} · \${tr(item.location)}</strong><span>\${item.duration} min</span></div><div style="font-size:0.85rem; color:#aaa;">\${item.experience || '无备注...'}</div></div></div>\`;
+                c.insertAdjacentHTML('beforeend', html);
+            });
+            historyPage++;
+        }
+        historyLoading = false;
+    }
     
-    // 类型切换核心函数
+    // --- Immersive Timer Logic (New) ---
+    function checkTimerState() {
+        const start = localStorage.getItem('timerStart');
+        if(start) { showTimerOverlay(parseInt(start)); }
+    }
+    function startTimer() {
+        const now = Date.now();
+        localStorage.setItem('timerStart', now);
+        showTimerOverlay(now);
+    }
+    function showTimerOverlay(startTime) {
+        document.getElementById('immersiveTimer').style.display = 'flex';
+        if(timerInterval) clearInterval(timerInterval);
+        timerInterval = setInterval(() => {
+            const diff = Date.now() - startTime;
+            const h=Math.floor(diff/3600000), m=Math.floor((diff%3600000)/60000), s=Math.floor((diff%60000)/1000);
+            document.getElementById('imTimerDisplay').innerText = \`\${h.toString().padStart(2,'0')}:\${m.toString().padStart(2,'0')}:\${s.toString().padStart(2,'0')}\`;
+        }, 1000);
+    }
+    function stopTimer() {
+        const start = localStorage.getItem('timerStart');
+        if(start) {
+            const diff = Date.now() - parseInt(start);
+            const min = Math.max(1, Math.round(diff/60000));
+            localStorage.removeItem('timerStart');
+            clearInterval(timerInterval);
+            document.getElementById('immersiveTimer').style.display = 'none';
+            // 打开记录框并填入时长
+            openModal(false);
+            document.getElementById('duration').value = min;
+            document.getElementById('vDur').innerText = min;
+        }
+    }
+
+    // --- Forms ---
     function setActType(type) {
         document.getElementById('actType').value = type;
-        document.querySelectorAll('.segment-opt').forEach(el => {
-            el.classList.toggle('active', el.dataset.val === type);
-        });
-        // 显隐逻辑
+        document.querySelectorAll('.segment-opt').forEach(el => el.classList.toggle('active', el.dataset.val === type));
         document.getElementById('secMasturbation').classList.toggle('hidden', type !== 'masturbation');
         document.getElementById('secIntercourse').classList.toggle('hidden', type !== 'intercourse');
     }
-
     function openModal(isEdit) {
         document.getElementById('modalOverlay').style.display = 'flex';
         document.getElementById('formTitle').innerText = isEdit ? '编辑' : '新记录';
-        
         if(!isEdit) {
             document.getElementById('recordId').value = '';
             const now = new Date(); now.setMinutes(now.getMinutes() - now.getTimezoneOffset());
             document.getElementById('datetime').value = now.toISOString().slice(0,16);
-            
-            // 默认值重置
             setActType('masturbation');
             document.getElementById('duration').value = 15; document.getElementById('vDur').innerText = 15;
             document.getElementById('satisfaction').value = 5; document.getElementById('vSat').innerText = 5;
-            document.getElementById('orgasmCount').value = 1;
-            document.querySelectorAll('input[type="checkbox"]').forEach(c => c.checked = false);
-            document.getElementById('partnerName').value = '';
-            document.getElementById('sexualPosition').value = '';
-            document.getElementById('experience').value = '';
+            document.getElementById('orgasmCount').value = 1; document.querySelectorAll('input[type="checkbox"]').forEach(c => c.checked = false);
+            document.getElementById('partnerName').value = ''; document.getElementById('sexualPosition').value = ''; document.getElementById('experience').value = '';
         }
     }
     function closeModal() { document.getElementById('modalOverlay').style.display='none'; }
-
     async function editRecord(id) {
         const r = await fetch(API+'/records/detail?id='+id, { headers: getHeaders() });
         const d = await r.json();
         openModal(true);
-        
         document.getElementById('recordId').value = d.id;
-        
-        // 切换到对应类型
         setActType(d.activity_type);
-        
         const utc = new Date(d.datetime);
         const loc = new Date(utc.getTime() - (utc.getTimezoneOffset() * 60000));
         document.getElementById('datetime').value = loc.toISOString().slice(0,16);
-        
-        // 填充通用字段
         ['location','mood','duration','satisfaction','orgasmCount','ejaculationCount','experience'].forEach(k => {
              const key = k === 'orgasmCount' ? 'orgasm_count' : (k === 'ejaculationCount' ? 'ejaculation_count' : k);
              if(d[key] !== undefined) document.getElementById(k).value = d[key];
         });
-        document.getElementById('vDur').innerText = d.duration;
-        document.getElementById('vSat').innerText = d.satisfaction;
-
-        // 填充独享字段
+        document.getElementById('vDur').innerText = d.duration; document.getElementById('vSat').innerText = d.satisfaction;
         if(d.stimulation) document.getElementById('stimulation').value = d.stimulation;
-        
-        // 填充欢愉字段 (修复丢失)
         if(d.partner_name) document.getElementById('partnerName').value = d.partner_name;
         if(d.sexual_position) document.getElementById('sexualPosition').value = d.sexual_position;
-
-        // Checkboxes
         const acts = d.acts || [];
         document.querySelectorAll('input[name="acts"]').forEach(cb => cb.checked = acts.includes(cb.value));
     }
-
     async function saveRecord() {
         const id = document.getElementById('recordId').value;
         const type = document.getElementById('actType').value;
         const acts = [];
         document.querySelectorAll('input[name="acts"]:checked').forEach(c => acts.push(c.value));
-        
         const data = {
-          id: id||undefined,
-          activity_type: type,
-          datetime: new Date(document.getElementById('datetime').value).toISOString(),
-          duration: document.getElementById('duration').value,
-          location: document.getElementById('location').value,
-          mood: document.getElementById('mood').value,
-          satisfaction: document.getElementById('satisfaction').value,
-          orgasm_count: document.getElementById('orgasmCount').value,
-          ejaculation_count: document.getElementById('ejaculationCount').value,
-          experience: document.getElementById('experience').value,
-          acts: acts,
-          // 特定字段
+          id: id||undefined, activity_type: type, datetime: new Date(document.getElementById('datetime').value).toISOString(),
+          duration: document.getElementById('duration').value, location: document.getElementById('location').value, mood: document.getElementById('mood').value,
+          satisfaction: document.getElementById('satisfaction').value, orgasm_count: document.getElementById('orgasmCount').value, ejaculation_count: document.getElementById('ejaculationCount').value,
+          experience: document.getElementById('experience').value, acts: acts,
           stimulation: type==='masturbation' ? document.getElementById('stimulation').value : undefined,
           partner_name: type==='intercourse' ? document.getElementById('partnerName').value : undefined,
           sexual_position: type==='intercourse' ? document.getElementById('sexualPosition').value : undefined
        };
-       
        await fetch(API+'/records', { method:id?'PUT':'POST', headers: getHeaders(), body:JSON.stringify(data) });
-       closeModal(); resetList(); loadRecords(); loadStats();
+       closeModal(); resetList(); loadRecords(); loadStats(); 
+       // Also reload history if needed
+       if(!document.getElementById('view-history').classList.contains('hidden')) { 
+           historyPage=1; document.getElementById('timelineContainer').innerHTML=''; historyHasMore=true; loadHistory();
+       }
     }
 
-    // --- 导航与视图 ---
+    // --- Nav ---
     function switchView(v, el) {
         document.querySelectorAll('.dock-item').forEach(d => d.classList.remove('active'));
         if(el) el.classList.add('active');
-        ['home','leaderboard','profile'].forEach(name => {
+        ['home','leaderboard','profile','history'].forEach(name => {
            const div = document.getElementById('view-'+name);
            if(name === v) { div.classList.remove('hidden'); div.style.animation='slideUp 0.3s'; }
            else div.classList.add('hidden');
         });
         if(v==='leaderboard') loadLeaderboard();
+        if(v==='history' && document.getElementById('timelineContainer').innerHTML==='') loadHistory();
     }
-    
     async function loadLeaderboard() {
         const r = await fetch(API+'/leaderboard', { headers: getHeaders() });
         const list = await r.json();
         const b = document.getElementById('leaderboardBody'); b.innerHTML = '';
-        list.forEach((i, idx) => {
-            b.insertAdjacentHTML('beforeend', \`<tr style="border-bottom:1px solid #222"><td style="padding:12px; color:\${idx<3?'var(--primary)':'#666'}">\${idx+1}</td><td>\${i.username}</td><td>\${Math.round(i.total_duration/60)}h</td><td>\${i.total_records}</td></tr>\`);
-        });
+        list.forEach((i, idx) => { b.insertAdjacentHTML('beforeend', \`<tr style="border-bottom:1px solid #222"><td style="padding:12px; color:\${idx<3?'var(--primary)':'#666'}">\${idx+1}</td><td>\${i.username}</td><td>\${Math.round(i.total_duration/60)}h</td><td>\${i.total_records}</td></tr>\`); });
     }
-    function setupInfiniteScroll() { const obs = new IntersectionObserver(e=>{if(e[0].isIntersecting) loadRecords()}); obs.observe(document.getElementById('scrollSentinel')); }
+    function setupInfiniteScroll() { 
+        const obs = new IntersectionObserver(e=>{if(e[0].isIntersecting) loadRecords()}); obs.observe(document.getElementById('scrollSentinel'));
+        const obsH = new IntersectionObserver(e=>{if(e[0].isIntersecting) loadHistory()}); obsH.observe(document.getElementById('historySentinel'));
+    }
   </script>
 </body>
 </html>
