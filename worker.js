@@ -1,6 +1,6 @@
 /**
- * 秘密花园 (Secret Garden) - v7.3 Pro
- * 特性: 全中文化 + 首页左置 + 自定义头像 + 选项深度优化
+ * 秘密花园 (Secret Garden) - v7.4 Pro
+ * 特性: 全中文化 + 首页左置 + 自定义头像 + 选项深度优化 + 图表自适应响应式
  */
 
 const DEFAULT_JWT_SECRET = 'change-this-secret-in-env-vars-please'; 
@@ -11,7 +11,7 @@ const CORS_HEADERS = {
   'Access-Control-Max-Age': '86400',
 };
 
-// --- 翻译映射表 (新增了部分自慰选项) ---
+// --- 翻译映射表 ---
 const TR_MAP = {
   'bedroom': '卧室', 'living_room': '客厅', 'bathroom': '浴室', 'hotel': '酒店', 'car': '车内', 'outdoor': '野战', 'office': '办公室', 'public_space': '公共场所', 'pool': '泳池', 'friend_house': '朋友家', 'other': '其他',
   'horny': '🔥 性致勃勃', 'romantic': '🌹 浪漫', 'passionate': '❤️‍🔥 激情', 'aggressive': '😈 暴躁/发泄', 'stressed': '😫 压力释放', 'lazy': '🛌 慵懒', 'bored': '🥱 无聊', 'happy': '🥰 开心', 'drunk': '🍷 微醺', 'high': '🌿 嗨大了', 'experimental': '🧪 猎奇', 'morning_wood': '🌅 晨勃', 'lonely': '🌑 孤独', 'sad': '😢 悲伤', 'none': '纯想象', 'fantasy': '特定幻想', 
@@ -56,7 +56,7 @@ export default {
   }
 };
 
-// --- 后端逻辑 (保持稳定) ---
+// --- 后端逻辑 ---
 async function getRecords(req, env, user) {
   const url = new URL(req.url);
   const page = Math.max(1, parseInt(url.searchParams.get('page')) || 1);
@@ -181,7 +181,7 @@ function errorResponse(msg, status = 400) { return jsonResponse({ error: msg }, 
 function generateId() { return Date.now().toString(36) + Math.random().toString(36).substring(2, 6); }
 
 // ==========================================
-// 前端 HTML (v7.3 Pro: 全中文/头像/新布局)
+// 前端 HTML
 // ==========================================
 async function serveFrontend() {
   const html = `
@@ -215,6 +215,17 @@ async function serveFrontend() {
     .container { max-width: 800px; margin: 0 auto; padding: 20px; }
     .hidden { display: none !important; }
     
+    /* 图表自适应布局 */
+    .charts-wrapper { display: flex; flex-direction: row; gap: 15px; height: 220px; padding: 15px; }
+    .chart-box-main { flex: 2; position: relative; min-width: 0; display: flex; align-items: center; }
+    .chart-box-side { flex: 1; position: relative; max-width: 180px; display: flex; align-items: center; justify-content: center; }
+    
+    @media (max-width: 600px) {
+        .charts-wrapper { flex-direction: column; height: auto; }
+        .chart-box-main { width: 100%; height: 200px; flex: none; }
+        .chart-box-side { width: 100%; height: 180px; max-width: none; flex: none; border-top: 1px solid rgba(255,255,255,0.05); margin-top: 10px; padding-top: 10px; }
+    }
+
     /* 沉浸式计时器全屏层 */
     #immersiveTimer { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: #000; z-index: 2000; display: none; flex-direction: column; align-items: center; justify-content: center; }
     .timer-display { font-family: 'Cinzel', monospace; font-size: 4rem; font-weight: bold; color: #fff; text-shadow: 0 0 20px var(--primary); margin-bottom: 40px; font-variant-numeric: tabular-nums; }
@@ -312,10 +323,13 @@ async function serveFrontend() {
          <div class="stat-box"><div class="stat-val" id="sScore">0</div><div class="stat-label">满意度</div></div>
          <div class="stat-box"><div class="stat-val" id="sOrgasm" style="color:var(--primary);">0</div><div class="stat-label">总高潮</div></div>
        </div>
-       <div class="glass card" style="height:200px; display:flex; gap:10px; padding:15px;">
-          <div style="flex:1; position:relative;"><canvas id="chartHistory"></canvas></div>
-          <div style="width:90px; position:relative;"><canvas id="chartType"></canvas></div>
+
+       <!-- 优化后的图表容器 -->
+       <div class="glass card charts-wrapper">
+          <div class="chart-box-main"><canvas id="chartHistory"></canvas></div>
+          <div class="chart-box-side"><canvas id="chartType"></canvas></div>
        </div>
+
        <div style="display:flex; gap:10px; margin-bottom:15px;">
           <input type="text" id="searchInput" placeholder="搜索..." style="flex:1;">
           <select id="statsRange" style="width:100px;" onchange="loadStats(this.value)">
@@ -360,7 +374,7 @@ async function serveFrontend() {
           <button class="btn btn-outline" onclick="changePassword()">修改密码</button>
        </div>
        <button class="btn" style="background:#333; color:#aaa; margin-top:20px;" onclick="logout()">退出登录</button>
-       <div style="text-align:center; margin-top:30px; font-size:0.7rem; color:#444;">v7.3 Pro Remastered</div>
+       <div style="text-align:center; margin-top:30px; font-size:0.7rem; color:#444;">v7.4 Pro Remastered</div>
     </div>
   </div>
 
@@ -546,12 +560,18 @@ async function serveFrontend() {
         document.getElementById('sOrgasm').innerText = s.total_orgasms;
         
         Chart.defaults.color = '#666';
+        Chart.defaults.responsive = true;
+        Chart.defaults.maintainAspectRatio = false;
+        
         if(chart1) chart1.destroy(); if(chart2) chart2.destroy();
+        
         const ctx1 = document.getElementById('chartType').getContext('2d');
         chart1 = new Chart(ctx1, { type: 'doughnut', data: { labels: ['自慰','性爱'], datasets: [{ data: [s.masturbation, s.intercourse], backgroundColor: ['#d946ef', '#f43f5e'], borderWidth: 0 }] }, options: { maintainAspectRatio:false, cutout: '75%', plugins: { legend: { display: false } } } });
+        
         const ctx2 = document.getElementById('chartHistory').getContext('2d');
         const labels = Object.keys(s.records_by_month).sort();
         chart2 = new Chart(ctx2, { type: 'bar', data: { labels: labels.map(l=>l.slice(5)), datasets: [{ label: '次', data: labels.map(k => s.records_by_month[k]), backgroundColor: '#8b5cf6', borderRadius: 4 }] }, options: { maintainAspectRatio:false, scales: { x: { grid: {display:false} }, y: { display:false } }, plugins: { legend: {display:false} } } });
+        
         if(currentPage===1) loadRecords();
     }
     function resetList() { currentPage=1; hasMore=true; document.getElementById('listContainer').innerHTML=''; }
