@@ -1,6 +1,6 @@
 /**
- * 秘密花园 (Secret Garden) - v7.2 Pro
- * 特性: 全屏沉浸计时器 + 时光轴历史 + 深度优化UI
+ * 秘密花园 (Secret Garden) - v7.3 Pro
+ * 特性: 全中文化 + 首页左置 + 自定义头像 + 选项深度优化
  */
 
 const DEFAULT_JWT_SECRET = 'change-this-secret-in-env-vars-please'; 
@@ -11,13 +11,16 @@ const CORS_HEADERS = {
   'Access-Control-Max-Age': '86400',
 };
 
-// --- 翻译映射表 (保持不变) ---
+// --- 翻译映射表 (新增了部分自慰选项) ---
 const TR_MAP = {
   'bedroom': '卧室', 'living_room': '客厅', 'bathroom': '浴室', 'hotel': '酒店', 'car': '车内', 'outdoor': '野战', 'office': '办公室', 'public_space': '公共场所', 'pool': '泳池', 'friend_house': '朋友家', 'other': '其他',
   'horny': '🔥 性致勃勃', 'romantic': '🌹 浪漫', 'passionate': '❤️‍🔥 激情', 'aggressive': '😈 暴躁/发泄', 'stressed': '😫 压力释放', 'lazy': '🛌 慵懒', 'bored': '🥱 无聊', 'happy': '🥰 开心', 'drunk': '🍷 微醺', 'high': '🌿 嗨大了', 'experimental': '🧪 猎奇', 'morning_wood': '🌅 晨勃', 'lonely': '🌑 孤独', 'sad': '😢 悲伤', 'none': '纯想象', 'fantasy': '特定幻想', 
-  'porn_pov': 'AV-POV', 'porn_amateur': 'AV-素人', 'porn_pro': 'AV-片商', 'hentai': '二次元', 'erotica': '黄文', 'audio': '娇喘/ASMR', 'hypno': '催眠', 'cam': '网聊', 'photos': '套图', 'ntr': 'NTR', 'femdom': '女S',
-  'm_hand': '传统手冲', 'm_prone': '俯卧(日地)', 'm_edging': '边缘控射', 'm_death_grip': '死握', 'm_slow': '慢玩', 'm_prostate': '前列腺', 'm_anal_play': '后庭把玩', 'm_docking': '夹腿',
-  'toy_cup': '飞机杯', 'toy_vibe': '震动棒', 'toy_anal': '肛塞', 'toy_milker': '榨精机', 'toy_doll': '娃娃', 'toy_lube': '大量润滑',
+  // 助兴
+  'porn_pov': '第一人称(POV)', 'porn_amateur': '素人/自拍', 'porn_pro': '专业片商', 'hentai': '二次元/里番', 'erotica': '色情文学', 'audio': '娇喘/ASMR', 'hypno': '催眠', 'cam': '网聊/直播', 'photos': '写真套图',
+  // 玩法与用具
+  'm_hand': '传统手艺', 'm_lube': '润滑液', 'm_fast': '快速冲刺', 'm_slow': '慢玩享受', 'm_edging': '边缘控射(寸止)', 'm_prostate': '前列腺开发', 'm_anal': '后庭探索',
+  'toy_cup': '飞机杯', 'toy_vibe': '震动棒', 'toy_milker': '榨精机', 'toy_doll': '实体娃娃',
+  // 性爱
   'kissing': '接吻', 'cuddling': '爱抚', 'massage': '按摩', 'dirty_talk': '脏话', 'oral_give': '口(攻)', 'oral_receive': '口(受)', '69': '69式', 'rimming': '舔肛', 'nipple_play': '乳头刺激', 'spanking': 'SP/打屁股', 'bondage': '束缚', 'fingering': '指交', 'manual': '手交', 'vaginal': '阴道', 'anal': '后庭', 'facial': '颜射', 'creampie': '内射', 'swallowing': '吞精',
   'missionary': '传教士', 'doggy': '后入', 'cowgirl': '女上位', 'reverse_cowgirl': '反向女上', 'spoons': '勺子式', 'standing': '站立', 'prone_bone': '俯卧后入', 'legs_up': '架腿'
 };
@@ -53,7 +56,7 @@ export default {
   }
 };
 
-// --- 后端逻辑 (保持 v7.1 一致) ---
+// --- 后端逻辑 (保持稳定) ---
 async function getRecords(req, env, user) {
   const url = new URL(req.url);
   const page = Math.max(1, parseInt(url.searchParams.get('page')) || 1);
@@ -178,7 +181,7 @@ function errorResponse(msg, status = 400) { return jsonResponse({ error: msg }, 
 function generateId() { return Date.now().toString(36) + Math.random().toString(36).substring(2, 6); }
 
 // ==========================================
-// 前端 HTML (v7.2 Pro: 沉浸计时器 + 时光轴)
+// 前端 HTML (v7.3 Pro: 全中文/头像/新布局)
 // ==========================================
 async function serveFrontend() {
   const html = `
@@ -189,7 +192,7 @@ async function serveFrontend() {
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
   <meta name="theme-color" content="#050505">
   <title>Secret Garden Pro</title>
-  <link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@300;400;600&family=Cinzel:wght@400;700&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+SC:wght@300;400;500;700&family=Cinzel:wght@400;700&display=swap" rel="stylesheet">
   <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
   <style>
     :root {
@@ -199,7 +202,7 @@ async function serveFrontend() {
       --text-main: #f3f4f6; --text-muted: #9ca3af;
     }
     * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; outline: none; }
-    body { margin: 0; background-color: var(--bg-deep); color: var(--text-main); font-family: 'Montserrat', sans-serif; min-height: 100vh; padding-bottom: 95px; }
+    body { margin: 0; background-color: var(--bg-deep); color: var(--text-main); font-family: 'Noto Sans SC', sans-serif; min-height: 100vh; padding-bottom: 95px; }
     
     .ambient-bg { position: fixed; top: 0; left: 0; width: 100%; height: 100%; z-index: -2; background: radial-gradient(circle at 10% 20%, #1a0b2e 0%, transparent 40%), radial-gradient(circle at 90% 80%, #2e0b1f 0%, transparent 40%), linear-gradient(to bottom, #0a0a0a, #050505); }
     
@@ -220,14 +223,14 @@ async function serveFrontend() {
     .pulse-ring { position: absolute; width: 200px; height: 200px; border-radius: 50%; border: 1px solid rgba(217, 70, 239, 0.3); animation: pulse 2s infinite; z-index: -1; }
     @keyframes pulse { 0% { transform: scale(0.8); opacity: 1; } 100% { transform: scale(1.5); opacity: 0; } }
 
-    /* 时光轴 (History) */
+    /* 时光轴 */
     .timeline { position: relative; padding-left: 20px; border-left: 2px solid rgba(255,255,255,0.1); margin-left: 10px; }
     .timeline-item { position: relative; margin-bottom: 30px; }
     .timeline-dot { position: absolute; left: -26px; top: 0; width: 10px; height: 10px; border-radius: 50%; background: var(--bg-deep); border: 2px solid var(--primary); }
     .timeline-date { font-size: 0.8rem; color: var(--primary); font-weight: bold; margin-bottom: 5px; }
     .timeline-content { background: rgba(255,255,255,0.03); border-radius: 12px; padding: 12px; border: 1px solid rgba(255,255,255,0.05); }
 
-    /* 底部 Dock (新增 History) */
+    /* 底部 Dock (调整位置：首页最左) */
     .dock-nav { position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%); width: 95%; max-width: 480px; height: 65px; background: rgba(20, 20, 25, 0.9); backdrop-filter: blur(20px); border: 1px solid rgba(255,255,255,0.1); border-radius: 35px; display: flex; justify-content: space-evenly; align-items: center; z-index: 100; box-shadow: 0 10px 30px rgba(0,0,0,0.6); }
     .dock-item { display: flex; flex-direction: column; align-items: center; color: #666; font-size: 0.6rem; gap: 4px; transition: 0.3s; width: 50px; cursor: pointer; }
     .dock-item svg { width: 20px; height: 20px; stroke: currentColor; stroke-width: 2; fill: none; transition: 0.3s; }
@@ -239,7 +242,7 @@ async function serveFrontend() {
     .stats-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px; margin-bottom: 20px; }
     .stat-box { background: rgba(255,255,255,0.03); padding: 15px; border-radius: 16px; text-align: center; border: 1px solid rgba(255,255,255,0.05); }
     .stat-val { font-family: 'Cinzel', serif; font-size: 1.6rem; color: #fff; text-shadow: 0 0 10px rgba(255,255,255,0.3); }
-    .stat-label { font-size: 0.7rem; color: var(--text-muted); margin-top: 4px; text-transform: uppercase; }
+    .stat-label { font-size: 0.7rem; color: var(--text-muted); margin-top: 4px; }
     
     .modal-overlay { position: fixed; top: 0; left: 0; width: 100%; height: 100%; z-index: 200; background: rgba(0,0,0,0.8); backdrop-filter: blur(5px); display: none; align-items: flex-end; justify-content: center; }
     .modal-content { width: 100%; max-width: 600px; background: #111; border-radius: 24px 24px 0 0; padding: 25px 20px 40px; max-height: 90vh; overflow-y: auto; border-top: 1px solid #333; animation: slideUp 0.3s ease; }
@@ -260,19 +263,20 @@ async function serveFrontend() {
     .tag-cb input:checked + label { background: rgba(255,255,255,0.15); border-color: var(--primary); color: #fff; }
     .record-card { display: flex; align-items: center; padding: 16px; border-radius: 16px; background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.05); margin-bottom: 10px; transition: 0.2s; cursor: pointer; }
     .record-icon { width: 44px; height: 44px; border-radius: 12px; display: flex; align-items: center; justify-content: center; font-size: 1.4rem; margin-right: 15px; background: rgba(0,0,0,0.3); flex-shrink: 0; }
-    .user-avatar { width: 80px; height: 80px; border-radius: 50%; background: linear-gradient(135deg, var(--primary), var(--secondary)); margin: 0 auto 15px; display: flex; align-items: center; justify-content: center; font-size: 2rem; border: 4px solid rgba(255,255,255,0.1); }
+    .user-avatar { width: 80px; height: 80px; border-radius: 50%; background-size: cover; background-position: center; background-color: #333; margin: 0 auto 15px; display: flex; align-items: center; justify-content: center; font-size: 2rem; border: 4px solid rgba(255,255,255,0.1); cursor:pointer; overflow: hidden; }
+    .form-subtitle { font-size: 0.75rem; color: var(--secondary); margin: 15px 0 8px; font-weight: bold; border-left: 3px solid var(--secondary); padding-left: 8px; }
   </style>
 </head>
 <body>
   <div class="ambient-bg"></div>
 
-  <!-- 全屏沉浸计时器 -->
+  <!-- 沉浸式计时器 -->
   <div id="immersiveTimer">
       <div class="pulse-ring"></div>
-      <div style="color:#aaa; font-size:0.9rem; margin-bottom:10px; letter-spacing:2px;">SESSION TIME</div>
+      <div style="color:#aaa; font-size:0.9rem; margin-bottom:10px; letter-spacing:2px;">沉浸时刻</div>
       <div id="imTimerDisplay" class="timer-display">00:00:00</div>
       <div class="timer-btn-stop" onclick="stopTimer()">⏹</div>
-      <div style="margin-top:20px; color:#555; font-size:0.8rem;">Focus on the moment</div>
+      <div style="margin-top:20px; color:#555; font-size:0.8rem;">专注当下，享受此刻</div>
   </div>
 
   <!-- 登录页 -->
@@ -293,17 +297,10 @@ async function serveFrontend() {
        <h2 style="font-family:'Cinzel'; margin:0; font-size:1.4rem;">My Garden</h2>
        <div style="display:flex; align-items:center; gap:10px;">
            <span id="headerDate" style="font-size:0.8rem; color:#666;"></span>
-           <!-- 顶部快速开始计时按钮 -->
+           <!-- 计时按钮 -->
            <button onclick="startTimer()" style="background:rgba(255,255,255,0.1); border:none; color:var(--primary); width:32px; height:32px; border-radius:50%; display:flex; align-items:center; justify-content:center; cursor:pointer;">⏱️</button>
        </div>
     </header>
-
-    <!-- 视图：时光轴 (History) - 新增 -->
-    <div id="view-history" class="hidden">
-       <h3 style="font-family:'Cinzel'; border-bottom:1px solid #333; padding-bottom:10px;">Timeline</h3>
-       <div id="timelineContainer" class="timeline"></div>
-       <div id="historySentinel" style="text-align:center; padding:10px; color:#555; font-size:0.8rem;">Load More</div>
-    </div>
 
     <!-- 视图：首页 (Home) -->
     <div id="view-home">
@@ -327,9 +324,16 @@ async function serveFrontend() {
        <div id="scrollSentinel" style="text-align:center; padding:20px; font-size:0.8rem; color:#555;">加载中...</div>
     </div>
 
+    <!-- 视图：时光轨迹 (History) -->
+    <div id="view-history" class="hidden">
+       <h3 style="font-family:'Cinzel'; border-bottom:1px solid #333; padding-bottom:10px;">时光轨迹</h3>
+       <div id="timelineContainer" class="timeline"></div>
+       <div id="historySentinel" style="text-align:center; padding:10px; color:#555; font-size:0.8rem;">加载更多</div>
+    </div>
+
     <!-- 视图：榜单 -->
     <div id="view-leaderboard" class="hidden">
-       <h3 style="font-family:'Cinzel'; border-bottom:1px solid #333; padding-bottom:10px;">Hall of Fame</h3>
+       <h3 style="font-family:'Cinzel'; border-bottom:1px solid #333; padding-bottom:10px;">极乐名人堂</h3>
        <table style="width:100%; border-collapse:collapse; color:#ccc; font-size:0.9rem;">
           <thead><tr style="color:#666; font-size:0.8rem; text-align:left;"><th>#</th><th>玩家</th><th>时长</th><th>次数</th></tr></thead>
           <tbody id="leaderboardBody"></tbody>
@@ -339,9 +343,13 @@ async function serveFrontend() {
     <!-- 视图：个人中心 -->
     <div id="view-profile" class="hidden">
        <div class="glass card" style="text-align:center; margin-top:20px;">
-          <div class="user-avatar">👤</div>
+          <div class="user-avatar" id="avatarDisplay" onclick="toggleAvatarInput()">👤</div>
+          <div id="avatarInputBox" class="hidden" style="margin-bottom:15px;">
+             <input type="text" id="avatarUrlInput" placeholder="输入头像图片链接 (URL)" style="margin-bottom:5px;">
+             <button class="btn btn-outline" style="padding:5px;" onclick="saveAvatar()">保存头像</button>
+          </div>
           <h2 id="profileUser" style="margin:0 0 5px 0;">User</h2>
-          <div style="font-size:0.8rem; color:#666;">Secret Garden Member</div>
+          <div style="font-size:0.8rem; color:#666;">秘密花园会员</div>
        </div>
        <div class="card" style="background:rgba(255,255,255,0.02);">
           <h4 style="margin:0 0 15px 0; border-bottom:1px solid #333; padding-bottom:10px;">安全设置</h4>
@@ -350,18 +358,19 @@ async function serveFrontend() {
           <button class="btn btn-outline" onclick="changePassword()">修改密码</button>
        </div>
        <button class="btn" style="background:#333; color:#aaa; margin-top:20px;" onclick="logout()">退出登录</button>
+       <div style="text-align:center; margin-top:30px; font-size:0.7rem; color:#444;">v7.3 Pro Remastered</div>
     </div>
   </div>
 
-  <!-- 底部 Dock 导航 (5个按钮) -->
+  <!-- 底部 Dock 导航 (Home 在左侧) -->
   <div class="dock-nav" id="dockNav">
-    <div class="dock-item" onclick="switchView('history', this)">
-      <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"></circle><polyline points="12 6 12 12 16 14"></polyline></svg>
-      <span>历史</span>
-    </div>
     <div class="dock-item active" onclick="switchView('home', this)">
       <svg viewBox="0 0 24 24"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"></path><polyline points="9 22 9 12 15 12 15 22"></polyline></svg>
       <span>首页</span>
+    </div>
+    <div class="dock-item" onclick="switchView('history', this)">
+      <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"></circle><polyline points="12 6 12 12 16 14"></polyline></svg>
+      <span>历史</span>
     </div>
     <div class="dock-fab" onclick="openModal(false)">
       <span style="font-size:2rem; line-height:1;">+</span>
@@ -376,7 +385,7 @@ async function serveFrontend() {
     </div>
   </div>
 
-  <!-- 记录编辑器弹窗 (复用 v7.1) -->
+  <!-- 记录编辑器弹窗 -->
   <div id="modalOverlay" class="modal-overlay">
     <div class="modal-content">
        <div style="display:flex; justify-content:space-between; margin-bottom:15px;">
@@ -394,38 +403,53 @@ async function serveFrontend() {
           <div class="form-group"><label>地点</label><select id="location"><option value="bedroom">卧室</option><option value="living_room">客厅</option><option value="bathroom">浴室</option><option value="hotel">酒店</option><option value="car">车内</option><option value="outdoor">野战</option><option value="office">办公室</option><option value="other">其他</option></select></div>
           <div class="form-group"><label>心情</label><select id="mood"><option value="horny">🔥 性致勃勃</option><option value="lonely">🌑 孤独</option><option value="stressed">😫 压力释放</option><option value="bored">🥱 无聊</option><option value="drunk">🍷 微醺</option><option value="morning_wood">🌅 晨勃</option></select></div>
        </div>
+       
+       <!-- 自慰选项优化 -->
        <div id="secMasturbation">
-          <div class="form-group"><label>助兴素材</label><select id="stimulation"><option value="none">纯想象</option><option value="porn_pov">POV视角</option><option value="porn_amateur">素人/自拍</option><option value="hentai">二次元</option><option value="erotica">色情文学</option><option value="audio">娇喘/ASMR</option><option value="toy_lube">润滑油</option></select></div>
-          <div class="form-group"><label>玩法</label>
-             <div class="tag-group">
-                <div class="tag-cb"><input type="checkbox" name="acts" id="m_hand" value="m_hand"><label for="m_hand">手冲</label></div>
-                <div class="tag-cb"><input type="checkbox" name="acts" id="m_edging" value="m_edging"><label for="m_edging">边缘控射</label></div>
-                <div class="tag-cb"><input type="checkbox" name="acts" id="toy_cup" value="toy_cup"><label for="toy_cup">飞机杯</label></div>
+          <div class="form-subtitle">助兴素材</div>
+          <div class="form-group"><select id="stimulation"><option value="none">纯想象</option><option value="porn_pov">第一人称 (POV)</option><option value="porn_amateur">素人/自拍</option><option value="porn_pro">专业AV</option><option value="hentai">二次元/里番</option><option value="erotica">色情文学</option><option value="audio">娇喘/ASMR</option><option value="cam">网聊/直播</option><option value="photos">写真套图</option></select></div>
+          
+          <div class="form-subtitle">玩法与技巧</div>
+          <div class="tag-group">
+                <div class="tag-cb"><input type="checkbox" name="acts" id="m_hand" value="m_hand"><label for="m_hand">传统手艺</label></div>
+                <div class="tag-cb"><input type="checkbox" name="acts" id="m_lube" value="m_lube"><label for="m_lube">大量润滑</label></div>
+                <div class="tag-cb"><input type="checkbox" name="acts" id="m_edging" value="m_edging"><label for="m_edging">边缘控射(寸止)</label></div>
+                <div class="tag-cb"><input type="checkbox" name="acts" id="m_fast" value="m_fast"><label for="m_fast">快速冲刺</label></div>
+                <div class="tag-cb"><input type="checkbox" name="acts" id="m_slow" value="m_slow"><label for="m_slow">慢玩享受</label></div>
                 <div class="tag-cb"><input type="checkbox" name="acts" id="m_prostate" value="m_prostate"><label for="m_prostate">前列腺</label></div>
+                <div class="tag-cb"><input type="checkbox" name="acts" id="m_anal" value="m_anal"><label for="m_anal">后庭探索</label></div>
+          </div>
+
+          <div class="form-subtitle">辅助用具</div>
+          <div class="tag-group">
+                <div class="tag-cb"><input type="checkbox" name="acts" id="toy_cup" value="toy_cup"><label for="toy_cup">飞机杯</label></div>
                 <div class="tag-cb"><input type="checkbox" name="acts" id="toy_vibe" value="toy_vibe"><label for="toy_vibe">震动棒</label></div>
-             </div>
+                <div class="tag-cb"><input type="checkbox" name="acts" id="toy_milker" value="toy_milker"><label for="toy_milker">榨精机</label></div>
+                <div class="tag-cb"><input type="checkbox" name="acts" id="toy_doll" value="toy_doll"><label for="toy_doll">实体娃娃</label></div>
           </div>
        </div>
+
+       <!-- 性爱选项 (保持完整) -->
        <div id="secIntercourse" class="hidden">
           <div class="input-row">
-             <div class="form-group"><label>伴侣姓名</label><input type="text" id="partnerName" placeholder="Name"></div>
+             <div class="form-group"><label>伴侣姓名</label><input type="text" id="partnerName" placeholder="姓名/昵称"></div>
              <div class="form-group"><label>体位</label><select id="sexualPosition"><option value="">--选择--</option><option value="missionary">传教士</option><option value="doggy">后入式</option><option value="cowgirl">女上位</option><option value="69">69式</option><option value="prone_bone">俯卧后入</option><option value="standing">站立式</option></select></div>
           </div>
-          <div class="form-group"><label>行为细节</label>
+          <div class="form-subtitle">行为细节</div>
              <div class="tag-group">
-                <div class="tag-cb"><input type="checkbox" name="acts" id="i_oral_give" value="oral_give"><label for="i_oral_give">主动口</label></div>
-                <div class="tag-cb"><input type="checkbox" name="acts" id="i_oral_recv" value="oral_receive"><label for="i_oral_recv">被动口</label></div>
-                <div class="tag-cb"><input type="checkbox" name="acts" id="i_vag" value="vaginal"><label for="i_vag">阴道交</label></div>
+                <div class="tag-cb"><input type="checkbox" name="acts" id="i_oral_give" value="oral_give"><label for="i_oral_give">口(攻)</label></div>
+                <div class="tag-cb"><input type="checkbox" name="acts" id="i_oral_recv" value="oral_receive"><label for="i_oral_recv">口(受)</label></div>
+                <div class="tag-cb"><input type="checkbox" name="acts" id="i_vag" value="vaginal"><label for="i_vag">阴道</label></div>
                 <div class="tag-cb"><input type="checkbox" name="acts" id="i_anal" value="anal"><label for="i_anal">后庭</label></div>
                 <div class="tag-cb"><input type="checkbox" name="acts" id="i_cream" value="creampie"><label for="i_cream">内射</label></div>
                 <div class="tag-cb"><input type="checkbox" name="acts" id="i_fing" value="fingering"><label for="i_fing">指交</label></div>
                 <div class="tag-cb"><input type="checkbox" name="acts" id="i_toy" value="toy_lube"><label for="i_toy">用具</label></div>
              </div>
-          </div>
        </div>
-       <div style="background:#222; border-radius:12px; padding:15px; margin-bottom:15px;">
+
+       <div style="background:#222; border-radius:12px; padding:15px; margin:20px 0 15px;">
           <div style="display:flex; justify-content:space-between; margin-bottom:5px;">
-             <span style="font-size:0.8rem; color:#aaa;">时长: <span id="vDur" style="color:#fff; font-size:1rem;">15</span> min</span>
+             <span style="font-size:0.8rem; color:#aaa;">时长: <span id="vDur" style="color:#fff; font-size:1rem;">15</span> 分钟</span>
              <span style="font-size:0.8rem; color:#aaa;">满意度: <span id="vSat" style="color:#fff; font-size:1rem;">5</span></span>
           </div>
           <input type="range" id="duration" min="0" max="180" step="1" value="15" oninput="document.getElementById('vDur').innerText=this.value" style="margin-bottom:10px;">
@@ -458,22 +482,26 @@ async function serveFrontend() {
         document.getElementById('authScreen').style.display='none';
         document.getElementById('app').classList.remove('hidden');
         document.getElementById('profileUser').innerText = user;
+        // 加载头像
+        const avatar = localStorage.getItem('sg_avatar_'+user);
+        if(avatar) document.getElementById('avatarDisplay').style.backgroundImage = \`url('\${avatar}')\`;
+        
         loadStats();
         setupInfiniteScroll();
-        checkTimerState(); // 恢复计时器状态
+        checkTimerState();
         let t; document.getElementById('searchInput').addEventListener('input', ()=>{ clearTimeout(t); t=setTimeout(()=>{resetList();loadRecords();},500); });
       }
     })();
 
     function getHeaders() { return { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + token }; }
 
-    // Auth
+    // Auth & Profile
     async function doLogin() {
        const u = document.getElementById('lg-user').value, p = document.getElementById('lg-pass').value;
        const r = await fetch(API+'/auth/login', { method:'POST', body:JSON.stringify({username:u, password:p}) });
        const d = await r.json();
        if(d.token) { localStorage.setItem('sg_token', d.token); localStorage.setItem('sg_user', d.username); location.reload(); }
-       else document.getElementById('loginMsg').innerText = d.error || 'Login failed';
+       else document.getElementById('loginMsg').innerText = d.error || '登录失败';
     }
     async function doRegister() {
         const u = document.getElementById('lg-user').value, p = document.getElementById('lg-pass').value;
@@ -486,6 +514,20 @@ async function serveFrontend() {
         const o = document.getElementById('p-old').value, n = document.getElementById('p-new').value;
         const r = await fetch(API+'/auth/password', { method:'POST', headers:getHeaders(), body:JSON.stringify({oldPassword:o, newPassword:n}) });
         const d = await r.json(); alert(d.error || d.message);
+    }
+    
+    // 头像逻辑 (LocalStorage)
+    function toggleAvatarInput() {
+        document.getElementById('avatarInputBox').classList.toggle('hidden');
+    }
+    function saveAvatar() {
+        const url = document.getElementById('avatarUrlInput').value;
+        if(url) {
+            localStorage.setItem('sg_avatar_'+user, url);
+            document.getElementById('avatarDisplay').style.backgroundImage = \`url('\${url}')\`;
+            document.getElementById('avatarDisplay').innerText = '';
+            toggleAvatarInput();
+        }
     }
 
     // --- Stats & Home List ---
@@ -504,7 +546,7 @@ async function serveFrontend() {
         chart1 = new Chart(ctx1, { type: 'doughnut', data: { labels: ['自慰','性爱'], datasets: [{ data: [s.masturbation, s.intercourse], backgroundColor: ['#d946ef', '#f43f5e'], borderWidth: 0 }] }, options: { maintainAspectRatio:false, cutout: '75%', plugins: { legend: { display: false } } } });
         const ctx2 = document.getElementById('chartHistory').getContext('2d');
         const labels = Object.keys(s.records_by_month).sort();
-        chart2 = new Chart(ctx2, { type: 'bar', data: { labels: labels.map(l=>l.slice(5)), datasets: [{ label: 'Count', data: labels.map(k => s.records_by_month[k]), backgroundColor: '#8b5cf6', borderRadius: 4 }] }, options: { maintainAspectRatio:false, scales: { x: { grid: {display:false} }, y: { display:false } }, plugins: { legend: {display:false} } } });
+        chart2 = new Chart(ctx2, { type: 'bar', data: { labels: labels.map(l=>l.slice(5)), datasets: [{ label: '次', data: labels.map(k => s.records_by_month[k]), backgroundColor: '#8b5cf6', borderRadius: 4 }] }, options: { maintainAspectRatio:false, scales: { x: { grid: {display:false} }, y: { display:false } }, plugins: { legend: {display:false} } } });
         if(currentPage===1) loadRecords();
     }
     function resetList() { currentPage=1; hasMore=true; document.getElementById('listContainer').innerHTML=''; }
@@ -513,7 +555,7 @@ async function serveFrontend() {
         const q = document.getElementById('searchInput').value;
         const r = await fetch(\`\${API}/records?page=\${currentPage}&search=\${q}\`, { headers: getHeaders() });
         const d = await r.json();
-        if(d.records.length === 0) { hasMore=false; document.getElementById('scrollSentinel').innerText = '—— End ——'; }
+        if(d.records.length === 0) { hasMore=false; document.getElementById('scrollSentinel').innerText = '—— 到底了 ——'; }
         else { d.records.forEach(renderItem); currentPage++; }
         isLoading = false;
     }
@@ -522,23 +564,23 @@ async function serveFrontend() {
         const d = new Date(item.datetime);
         const dateStr = \`\${d.getMonth()+1}/\${d.getDate()} \${d.getHours()}:\${d.getMinutes().toString().padStart(2,'0')}\`;
         let tags = []; if(item.mood) tags.push(tr(item.mood)); if(isM && item.stimulation) tags.push(tr(item.stimulation));
-        const html = \`<div class="record-card \${isM?'type-m':'type-i'}" onclick="editRecord('\${item.id}')"><div class="record-icon">\${isM ? '🖐' : '❤️'}</div><div style="flex:1;"><div style="display:flex; justify-content:space-between; color:#eee; font-weight:600; margin-bottom:4px;"><span>\${tr(item.location||'unknown')}</span><span style="color:\${isM?'var(--primary)':'var(--accent)'}">\${item.duration}'</span></div><div style="font-size:0.8rem; color:#888;">\${dateStr} · \${item.satisfaction}/10</div><div style="margin-top:6px; display:flex; gap:6px; flex-wrap:wrap;">\${tags.map(t=>\`<span style="background:rgba(255,255,255,0.1); padding:2px 6px; border-radius:4px; font-size:0.7rem;">\${t}</span>\`).join('')}</div></div></div>\`;
+        const html = \`<div class="record-card \${isM?'type-m':'type-i'}" onclick="editRecord('\${item.id}')"><div class="record-icon">\${isM ? '🖐' : '❤️'}</div><div style="flex:1;"><div style="display:flex; justify-content:space-between; color:#eee; font-weight:600; margin-bottom:4px;"><span>\${tr(item.location||'unknown')}</span><span style="color:\${isM?'var(--primary)':'var(--accent)'}">\${item.duration}分</span></div><div style="font-size:0.8rem; color:#888;">\${dateStr} · \${item.satisfaction}/10</div><div style="margin-top:6px; display:flex; gap:6px; flex-wrap:wrap;">\${tags.map(t=>\`<span style="background:rgba(255,255,255,0.1); padding:2px 6px; border-radius:4px; font-size:0.7rem;">\${t}</span>\`).join('')}</div></div></div>\`;
         document.getElementById('listContainer').insertAdjacentHTML('beforeend', html);
     }
 
-    // --- History Timeline Logic (New) ---
+    // --- History Logic ---
     async function loadHistory() {
         if(historyLoading || !historyHasMore) return; historyLoading = true;
         const r = await fetch(\`\${API}/records?page=\${historyPage}\`, { headers: getHeaders() });
         const d = await r.json();
         const c = document.getElementById('timelineContainer');
-        if(d.records.length === 0) { historyHasMore=false; document.getElementById('historySentinel').innerText = 'The Beginning of Time'; }
+        if(d.records.length === 0) { historyHasMore=false; document.getElementById('historySentinel').innerText = '一切的开始'; }
         else {
             d.records.forEach(item => {
                 const isM = item.activity_type === 'masturbation';
                 const d = new Date(item.datetime);
                 const timeStr = \`\${d.getFullYear()}-\${d.getMonth()+1}-\${d.getDate()} \${d.getHours()}:\${d.getMinutes().toString().padStart(2,'0')}\`;
-                const html = \`<div class="timeline-item"><div class="timeline-dot" style="border-color:\${isM?'var(--primary)':'var(--accent)'}"></div><div class="timeline-date">\${timeStr}</div><div class="timeline-content" onclick="editRecord('\${item.id}')"><div style="display:flex; justify-content:space-between; margin-bottom:5px;"><strong style="color:#fff">\${isM?'独享':'欢愉'} · \${tr(item.location)}</strong><span>\${item.duration} min</span></div><div style="font-size:0.85rem; color:#aaa;">\${item.experience || '无备注...'}</div></div></div>\`;
+                const html = \`<div class="timeline-item"><div class="timeline-dot" style="border-color:\${isM?'var(--primary)':'var(--accent)'}"></div><div class="timeline-date">\${timeStr}</div><div class="timeline-content" onclick="editRecord('\${item.id}')"><div style="display:flex; justify-content:space-between; margin-bottom:5px;"><strong style="color:#fff">\${isM?'独享':'欢愉'} · \${tr(item.location)}</strong><span>\${item.duration} 分钟</span></div><div style="font-size:0.85rem; color:#aaa;">\${item.experience || '无备注...'}</div></div></div>\`;
                 c.insertAdjacentHTML('beforeend', html);
             });
             historyPage++;
@@ -546,7 +588,7 @@ async function serveFrontend() {
         historyLoading = false;
     }
     
-    // --- Immersive Timer Logic (New) ---
+    // --- Timer ---
     function checkTimerState() {
         const start = localStorage.getItem('timerStart');
         if(start) { showTimerOverlay(parseInt(start)); }
@@ -573,7 +615,6 @@ async function serveFrontend() {
             localStorage.removeItem('timerStart');
             clearInterval(timerInterval);
             document.getElementById('immersiveTimer').style.display = 'none';
-            // 打开记录框并填入时长
             openModal(false);
             document.getElementById('duration').value = min;
             document.getElementById('vDur').innerText = min;
@@ -638,7 +679,6 @@ async function serveFrontend() {
        };
        await fetch(API+'/records', { method:id?'PUT':'POST', headers: getHeaders(), body:JSON.stringify(data) });
        closeModal(); resetList(); loadRecords(); loadStats(); 
-       // Also reload history if needed
        if(!document.getElementById('view-history').classList.contains('hidden')) { 
            historyPage=1; document.getElementById('timelineContainer').innerHTML=''; historyHasMore=true; loadHistory();
        }
