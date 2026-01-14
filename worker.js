@@ -463,7 +463,10 @@ async function serveFrontend() {
        </div>
        <div class="form-group"><label>备注/日记</label><textarea id="experience" rows="3" placeholder="写下感受..."></textarea></div>
        <div style="height:20px;"></div>
-       <button class="btn" style="height:50px;" onclick="saveRecord()">保存记录</button>
+       <div style="display:flex; gap:10px;">
+         <button class="btn" style="height:50px; flex:1;" onclick="saveRecord()">保存记录</button>
+         <button id="deleteBtn" class="btn" style="height:50px; width:80px; background:var(--accent); display:none;" onclick="deleteCurrentRecord()">删除</button>
+       </div>
     </div>
   </div>
 
@@ -633,6 +636,8 @@ async function serveFrontend() {
     function openModal(isEdit) {
         document.getElementById('modalOverlay').style.display = 'flex';
         document.getElementById('formTitle').innerText = isEdit ? '编辑' : '新记录';
+        // 显示/隐藏删除按钮
+        document.getElementById('deleteBtn').style.display = isEdit ? 'block' : 'none';
         if(!isEdit) {
             document.getElementById('recordId').value = '';
             const now = new Date(); now.setMinutes(now.getMinutes() - now.getTimezoneOffset());
@@ -682,6 +687,20 @@ async function serveFrontend() {
        await fetch(API+'/records', { method:id?'PUT':'POST', headers: getHeaders(), body:JSON.stringify(data) });
        closeModal(); resetList(); loadRecords(); loadStats(); 
        if(!document.getElementById('view-history').classList.contains('hidden')) { 
+           historyPage=1; document.getElementById('timelineContainer').innerHTML=''; historyHasMore=true; loadHistory();
+       }
+    }
+    
+    // 删除当前记录
+    async function deleteCurrentRecord() {
+       const id = document.getElementById('recordId').value;
+       if(!id || !confirm('确定要删除这条记录吗？此操作不可撤销。')) return;
+       const r = await fetch(API+'/records?id='+id, { method:'DELETE', headers: getHeaders() });
+       const d = await r.json();
+       if(d.error) { alert('删除失败: '+d.error); return; }
+       alert('删除成功');
+       closeModal(); resetList(); loadRecords(); loadStats();
+       if(!document.getElementById('view-history').classList.contains('hidden')) {
            historyPage=1; document.getElementById('timelineContainer').innerHTML=''; historyHasMore=true; loadHistory();
        }
     }
