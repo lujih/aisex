@@ -1,13 +1,15 @@
 /**
- * 秘密花园 (Secret Garden) - v7.4 Pro
- * 特性: 全中文化 + 首页左置 + 自定义头像 + 选项深度优化 + 图表自适应响应式
+ * 秘密花园 (Secret Garden) - v7.5 Admin Edition
+ * 特性: 导航栏融合设计 + 管理员后台 + 全中文化 + 沉浸式体验
  */
 
 const DEFAULT_JWT_SECRET = 'change-this-secret-in-env-vars-please'; 
+const DEFAULT_ADMIN_PASS = '123456'; // 默认管理密码
+
 const CORS_HEADERS = {
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, OPTIONS',
-  'Access-Control-Allow-Headers': 'Content-Type, Authorization',
+  'Access-Control-Allow-Headers': 'Content-Type, Authorization, X-Admin-Pass',
   'Access-Control-Max-Age': '86400',
 };
 
@@ -15,12 +17,9 @@ const CORS_HEADERS = {
 const TR_MAP = {
   'bedroom': '卧室', 'living_room': '客厅', 'bathroom': '浴室', 'hotel': '酒店', 'car': '车内', 'outdoor': '野战', 'office': '办公室', 'public_space': '公共场所', 'pool': '泳池', 'friend_house': '朋友家', 'other': '其他',
   'horny': '🔥 性致勃勃', 'romantic': '🌹 浪漫', 'passionate': '❤️‍🔥 激情', 'aggressive': '😈 暴躁/发泄', 'stressed': '😫 压力释放', 'lazy': '🛌 慵懒', 'bored': '🥱 无聊', 'happy': '🥰 开心', 'drunk': '🍷 微醺', 'high': '🌿 嗨大了', 'experimental': '🧪 猎奇', 'morning_wood': '🌅 晨勃', 'lonely': '🌑 孤独', 'sad': '😢 悲伤', 'none': '纯想象', 'fantasy': '特定幻想', 
-  // 助兴
   'porn_pov': '第一人称(POV)', 'porn_amateur': '素人/自拍', 'porn_pro': '专业片商', 'hentai': '二次元/里番', 'erotica': '色情文学', 'audio': '娇喘/ASMR', 'hypno': '催眠', 'cam': '网聊/直播', 'photos': '写真套图',
-  // 玩法与用具
   'm_hand': '传统手艺', 'm_lube': '润滑液', 'm_fast': '快速冲刺', 'm_slow': '慢玩享受', 'm_edging': '边缘控射(寸止)', 'm_prostate': '前列腺开发', 'm_anal': '后庭探索',
   'toy_cup': '飞机杯', 'toy_vibe': '震动棒', 'toy_milker': '榨精机', 'toy_doll': '实体娃娃',
-  // 性爱
   'kissing': '接吻', 'cuddling': '爱抚', 'massage': '按摩', 'dirty_talk': '脏话', 'oral_give': '口(攻)', 'oral_receive': '口(受)', '69': '69式', 'rimming': '舔肛', 'nipple_play': '乳头刺激', 'spanking': 'SP/打屁股', 'bondage': '束缚', 'fingering': '指交', 'manual': '手交', 'vaginal': '阴道', 'anal': '后庭', 'facial': '颜射', 'creampie': '内射', 'swallowing': '吞精',
   'missionary': '传教士', 'doggy': '后入', 'cowgirl': '女上位', 'reverse_cowgirl': '反向女上', 'spoons': '勺子式', 'standing': '站立', 'prone_bone': '俯卧后入', 'legs_up': '架腿'
 };
@@ -33,9 +32,15 @@ export default {
 
     try {
       if (path === '/' || path === '/index.html') return serveFrontend();
+      
+      // Admin Routes
+      if (path.startsWith('/api/admin')) return await handleAdmin(request, env);
+
+      // Auth Routes
       if (path === '/api/auth/register') return await registerUser(request, env);
       if (path === '/api/auth/login') return await loginUser(request, env);
 
+      // User Routes (Protected)
       const user = await verifyAuth(request, env);
       if (!user) return errorResponse('Unauthorized', 401);
 
@@ -57,6 +62,46 @@ export default {
 };
 
 // --- 后端逻辑 ---
+
+// Admin Handler
+async function handleAdmin(req, env) {
+    const adminPass = env.ADMIN_PASSWORD || DEFAULT_ADMIN_PASS;
+    const providedPass = req.headers.get('X-Admin-Pass');
+    
+    // 简单的密码验证
+    if (providedPass !== adminPass) return errorResponse('管理员密码错误', 403);
+
+    const url = new URL(req.url);
+    const path = url.pathname;
+
+    if (path === '/api/admin/stats') {
+        // 获取系统级统计
+        const userCount = await env.DB.prepare('SELECT count(*) as c FROM users').first();
+        const recordCount = await env.DB.prepare('SELECT count(*) as c FROM records').first();
+        return jsonResponse({
+            users: userCount.c,
+            records: recordCount.c,
+            db_size_est: (recordCount.c * 0.5).toFixed(2) + ' KB' // 粗略估算
+        });
+    }
+
+    if (path === '/api/admin/users') {
+        if (req.method === 'GET') {
+            const { results } = await env.DB.prepare('SELECT uid, username, created_at, (SELECT count(*) FROM records WHERE records.uid = users.uid) as rec_count FROM users ORDER BY rec_count DESC').all();
+            return jsonResponse(results);
+        }
+        if (req.method === 'DELETE') {
+            const uid = url.searchParams.get('uid');
+            if(!uid) return errorResponse('缺少UID');
+            await env.DB.prepare('DELETE FROM records WHERE uid = ?').bind(uid).run();
+            await env.DB.prepare('DELETE FROM users WHERE uid = ?').bind(uid).run();
+            return jsonResponse({ message: '用户及其数据已删除' });
+        }
+    }
+    return errorResponse('Admin route not found', 404);
+}
+
+// User Data Handlers
 async function getRecords(req, env, user) {
   const url = new URL(req.url);
   const page = Math.max(1, parseInt(url.searchParams.get('page')) || 1);
@@ -144,7 +189,7 @@ async function getLeaderboard(env) {
 async function registerUser(req, env) {
   const { username, password } = await req.json();
   if (!username || !password || username.length < 3) return errorResponse('无效参数');
-  try { await env.DB.prepare('INSERT INTO users (uid, username, password_hash) VALUES (?, ?, ?)').bind(generateId(), username, await hashPassword(password)).run(); return jsonResponse({ message: '注册成功' }); } catch (e) { return errorResponse('用户名已存在'); }
+  try { await env.DB.prepare('INSERT INTO users (uid, username, password_hash, created_at) VALUES (?, ?, ?, ?)').bind(generateId(), username, await hashPassword(password), new Date().toISOString()).run(); return jsonResponse({ message: '注册成功' }); } catch (e) { return errorResponse('用户名已存在'); }
 }
 async function loginUser(req, env) {
   const { username, password } = await req.json();
@@ -191,7 +236,7 @@ async function serveFrontend() {
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
   <meta name="theme-color" content="#050505">
-  <title>Secret Garden Pro</title>
+  <title>Secret Garden</title>
   <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+SC:wght@300;400;500;700&family=Cinzel:wght@400;700&display=swap" rel="stylesheet">
   <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
   <style>
@@ -212,6 +257,7 @@ async function serveFrontend() {
     .btn { background: linear-gradient(135deg, var(--primary), var(--secondary)); color: white; border: none; border-radius: 12px; padding: 12px; font-weight: 600; width: 100%; cursor: pointer; transition: 0.2s; box-shadow: 0 4px 15px rgba(217, 70, 239, 0.3); }
     .btn:active { transform: scale(0.97); }
     .btn-outline { background: transparent; border: 1px solid rgba(255,255,255,0.2); box-shadow: none; }
+    .btn-danger { background: linear-gradient(135deg, #ef4444, #b91c1c); box-shadow: 0 4px 15px rgba(239, 68, 68, 0.3); }
     .container { max-width: 800px; margin: 0 auto; padding: 20px; }
     .hidden { display: none !important; }
     
@@ -241,15 +287,18 @@ async function serveFrontend() {
     .timeline-date { font-size: 0.8rem; color: var(--primary); font-weight: bold; margin-bottom: 5px; }
     .timeline-content { background: rgba(255,255,255,0.03); border-radius: 12px; padding: 12px; border: 1px solid rgba(255,255,255,0.05); }
 
-    /* 底部 Dock (调整位置：首页最左) */
-    .dock-nav { position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%); width: 95%; max-width: 480px; height: 65px; background: rgba(20, 20, 25, 0.9); backdrop-filter: blur(20px); border: 1px solid rgba(255,255,255,0.1); border-radius: 35px; display: flex; justify-content: space-evenly; align-items: center; z-index: 100; box-shadow: 0 10px 30px rgba(0,0,0,0.6); }
-    .dock-item { display: flex; flex-direction: column; align-items: center; color: #666; font-size: 0.6rem; gap: 4px; transition: 0.3s; width: 50px; cursor: pointer; }
-    .dock-item svg { width: 20px; height: 20px; stroke: currentColor; stroke-width: 2; fill: none; transition: 0.3s; }
+    /* 底部 Dock - 优化版 (扁平化集成) */
+    .dock-nav { position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%); width: 95%; max-width: 480px; height: 60px; background: rgba(20, 20, 25, 0.9); backdrop-filter: blur(20px); border: 1px solid rgba(255,255,255,0.1); border-radius: 30px; display: flex; justify-content: space-evenly; align-items: center; z-index: 100; box-shadow: 0 10px 30px rgba(0,0,0,0.6); padding: 0 5px; }
+    .dock-item { display: flex; flex-direction: column; align-items: center; justify-content: center; color: #666; font-size: 0.65rem; gap: 3px; transition: 0.3s; width: 60px; height: 100%; cursor: pointer; position: relative; }
+    .dock-item svg { width: 22px; height: 22px; stroke: currentColor; stroke-width: 2; fill: none; transition: 0.3s; }
     .dock-item.active { color: var(--primary); }
     .dock-item.active svg { transform: translateY(-3px); stroke: var(--primary); }
-    .dock-fab { width: 56px; height: 56px; background: linear-gradient(135deg, var(--primary), #ff6b9d); border-radius: 50%; display: flex; align-items: center; justify-content: center; margin-top: -35px; border: 4px solid var(--bg-deep); color: #fff; font-size: 2rem; box-shadow: 0 0 25px var(--primary), 0 0 40px rgba(217, 70, 239, 0.5); cursor: pointer; transition: all 0.3s ease; animation: pulse-glow 2s infinite; }
-    .dock-fab:active { transform: scale(0.9); box-shadow: 0 0 15px var(--primary); }
-    @keyframes pulse-glow { 0% { box-shadow: 0 0 25px var(--primary), 0 0 40px rgba(217, 70, 239, 0.5); } 50% { box-shadow: 0 0 35px var(--primary), 0 0 60px rgba(217, 70, 239, 0.8); } 100% { box-shadow: 0 0 25px var(--primary), 0 0 40px rgba(217, 70, 239, 0.5); } }
+    
+    /* 计时器按钮 (中间项) */
+    .dock-item.timer-btn { color: var(--accent); }
+    .dock-item.timer-btn svg { width: 28px; height: 28px; filter: drop-shadow(0 0 5px rgba(244, 63, 94, 0.4)); }
+    .dock-item.timer-btn.active { color: #fff; }
+    .dock-item.timer-btn:active svg { transform: scale(0.9); }
 
     /* 通用样式补全 */
     .stats-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px; margin-bottom: 20px; }
@@ -278,6 +327,11 @@ async function serveFrontend() {
     .record-icon { width: 44px; height: 44px; border-radius: 12px; display: flex; align-items: center; justify-content: center; font-size: 1.4rem; margin-right: 15px; background: rgba(0,0,0,0.3); flex-shrink: 0; }
     .user-avatar { width: 80px; height: 80px; border-radius: 50%; background-size: cover; background-position: center; background-color: #333; margin: 0 auto 15px; display: flex; align-items: center; justify-content: center; font-size: 2rem; border: 4px solid rgba(255,255,255,0.1); cursor:pointer; overflow: hidden; }
     .form-subtitle { font-size: 0.75rem; color: var(--secondary); margin: 15px 0 8px; font-weight: bold; border-left: 3px solid var(--secondary); padding-left: 8px; }
+    
+    /* Admin Table */
+    .admin-table { width: 100%; border-collapse: collapse; font-size: 0.85rem; color: #ccc; }
+    .admin-table th { text-align: left; padding: 10px; color: #666; border-bottom: 1px solid #333; }
+    .admin-table td { padding: 10px; border-bottom: 1px solid #222; }
   </style>
 </head>
 <body>
@@ -373,12 +427,47 @@ async function serveFrontend() {
           <div class="form-group"><input type="password" id="p-new" placeholder="新密码 (至少5位)"></div>
           <button class="btn btn-outline" onclick="changePassword()">修改密码</button>
        </div>
+       
+       <!-- 管理入口 -->
+       <button class="btn btn-outline" style="border-style:dashed; color:#666; margin-top:10px;" onclick="switchView('admin', null)">管理后台</button>
+       
        <button class="btn" style="background:#333; color:#aaa; margin-top:20px;" onclick="logout()">退出登录</button>
-       <div style="text-align:center; margin-top:30px; font-size:0.7rem; color:#444;">v7.4 Pro Remastered</div>
+       <div style="text-align:center; margin-top:30px; font-size:0.7rem; color:#444;">v7.5 Admin Edition</div>
+    </div>
+
+    <!-- 视图：管理后台 -->
+    <div id="view-admin" class="hidden">
+        <h3 style="font-family:'Cinzel'; color:var(--accent);">Admin Dashboard</h3>
+        
+        <!-- 管理登录 -->
+        <div id="adminLoginBox">
+            <p style="font-size:0.8rem; color:#888;">请输入管理员密码进行验证</p>
+            <div style="display:flex; gap:10px;">
+                <input type="password" id="adminPassInput" placeholder="管理员密码" style="flex:1;">
+                <button class="btn" style="width:80px;" onclick="verifyAdmin()">验证</button>
+            </div>
+        </div>
+
+        <!-- 管理内容 -->
+        <div id="adminContent" class="hidden">
+            <div class="stats-grid">
+                <div class="stat-box"><div class="stat-val" id="admUsers">0</div><div class="stat-label">注册用户</div></div>
+                <div class="stat-box"><div class="stat-val" id="admRecords">0</div><div class="stat-label">总记录数</div></div>
+            </div>
+            <p style="font-size:0.7rem; text-align:center; color:#555;">DB Size Est: <span id="admDbSize">-</span></p>
+            
+            <h4 style="border-bottom:1px solid #333; padding-bottom:10px; margin-top:20px;">用户管理</h4>
+            <div style="overflow-x:auto;">
+                <table class="admin-table">
+                    <thead><tr><th>用户</th><th>注册时间</th><th>记录数</th><th>操作</th></tr></thead>
+                    <tbody id="adminUserList"></tbody>
+                </table>
+            </div>
+        </div>
     </div>
   </div>
 
-  <!-- 底部 Dock 导航 (Home 在左侧) -->
+  <!-- 底部 Dock 导航 (优化版) -->
   <div class="dock-nav" id="dockNav">
     <div class="dock-item active" onclick="switchView('home', this)">
       <svg viewBox="0 0 24 24"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"></path><polyline points="9 22 9 12 15 12 15 22"></polyline></svg>
@@ -388,8 +477,10 @@ async function serveFrontend() {
       <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"></circle><polyline points="12 6 12 12 16 14"></polyline></svg>
       <span>历史</span>
     </div>
-    <div class="dock-fab" onclick="startTimer()">
-      <span style="font-size:1.8rem; line-height:1;">⏱️</span>
+    <!-- 计时器按钮 (融合设计) -->
+    <div class="dock-item timer-btn" onclick="startTimer()">
+      <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"></circle><polyline points="12 6 12 12"></polyline><line x1="12" y1="6" x2="12" y2="2"></line></svg>
+      <span>计时</span>
     </div>
     <div class="dock-item" onclick="switchView('leaderboard', this)">
       <svg viewBox="0 0 24 24"><path d="M6 9H4.5a2.5 2.5 0 0 1 0-5H6"></path><path d="M18 9h1.5a2.5 2.5 0 0 0 0-5H18"></path><path d="M4 22h16"></path></svg>
@@ -420,7 +511,6 @@ async function serveFrontend() {
           <div class="form-group"><label>心情</label><select id="mood"><option value="horny">🔥 性致勃勃</option><option value="lonely">🌑 孤独</option><option value="stressed">😫 压力释放</option><option value="bored">🥱 无聊</option><option value="drunk">🍷 微醺</option><option value="morning_wood">🌅 晨勃</option></select></div>
        </div>
        
-       <!-- 自慰选项优化 -->
        <div id="secMasturbation">
           <div class="form-subtitle">助兴素材</div>
           <div class="form-group"><select id="stimulation"><option value="none">纯想象</option><option value="porn_pov">第一人称 (POV)</option><option value="porn_amateur">素人/自拍</option><option value="porn_pro">专业AV</option><option value="hentai">二次元/里番</option><option value="erotica">色情文学</option><option value="audio">娇喘/ASMR</option><option value="cam">网聊/直播</option><option value="photos">写真套图</option></select></div>
@@ -445,7 +535,6 @@ async function serveFrontend() {
           </div>
        </div>
 
-       <!-- 性爱选项 (保持完整) -->
        <div id="secIntercourse" class="hidden">
           <div class="input-row">
              <div class="form-group"><label>伴侣姓名</label><input type="text" id="partnerName" placeholder="姓名/昵称"></div>
@@ -491,6 +580,8 @@ async function serveFrontend() {
     
     let token = localStorage.getItem('sg_token');
     let user = localStorage.getItem('sg_user');
+    let adminPass = localStorage.getItem('sg_admin_pass');
+    
     let currentPage = 1, isLoading = false, hasMore = true;
     let historyPage = 1, historyLoading = false, historyHasMore = true;
     let chart1, chart2;
@@ -501,7 +592,6 @@ async function serveFrontend() {
         document.getElementById('authScreen').style.display='none';
         document.getElementById('app').classList.remove('hidden');
         document.getElementById('profileUser').innerText = user;
-        // 加载头像
         const avatar = localStorage.getItem('sg_avatar_'+user);
         if(avatar) document.getElementById('avatarDisplay').style.backgroundImage = \`url('\${avatar}')\`;
         
@@ -509,10 +599,21 @@ async function serveFrontend() {
         setupInfiniteScroll();
         checkTimerState();
         let t; document.getElementById('searchInput').addEventListener('input', ()=>{ clearTimeout(t); t=setTimeout(()=>{resetList();loadRecords();},500); });
+        
+        // Auto check admin
+        if(adminPass) {
+             document.getElementById('adminPassInput').value = adminPass;
+             document.getElementById('adminLoginBox').classList.add('hidden');
+             document.getElementById('adminContent').classList.remove('hidden');
+        }
       }
     })();
 
-    function getHeaders() { return { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + token }; }
+    function getHeaders() { 
+        const h = { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + token };
+        if(adminPass) h['X-Admin-Pass'] = adminPass;
+        return h;
+    }
 
     // Auth & Profile
     async function doLogin() {
@@ -534,11 +635,7 @@ async function serveFrontend() {
         const r = await fetch(API+'/auth/password', { method:'POST', headers:getHeaders(), body:JSON.stringify({oldPassword:o, newPassword:n}) });
         const d = await r.json(); alert(d.error || d.message);
     }
-    
-    // 头像逻辑 (LocalStorage)
-    function toggleAvatarInput() {
-        document.getElementById('avatarInputBox').classList.toggle('hidden');
-    }
+    function toggleAvatarInput() { document.getElementById('avatarInputBox').classList.toggle('hidden'); }
     function saveAvatar() {
         const url = document.getElementById('avatarUrlInput').value;
         if(url) {
@@ -547,6 +644,42 @@ async function serveFrontend() {
             document.getElementById('avatarDisplay').innerText = '';
             toggleAvatarInput();
         }
+    }
+
+    // --- Admin Logic ---
+    async function verifyAdmin() {
+        const p = document.getElementById('adminPassInput').value;
+        adminPass = p; // temporarily set for request
+        const r = await fetch(API+'/api/admin/stats', { headers: getHeaders() });
+        if(r.status === 200) {
+            localStorage.setItem('sg_admin_pass', p);
+            document.getElementById('adminLoginBox').classList.add('hidden');
+            document.getElementById('adminContent').classList.remove('hidden');
+            loadAdminData();
+        } else {
+            alert('验证失败');
+            adminPass = null;
+        }
+    }
+    async function loadAdminData() {
+        const r1 = await fetch(API+'/admin/stats', { headers: getHeaders() });
+        const s = await r1.json();
+        document.getElementById('admUsers').innerText = s.users;
+        document.getElementById('admRecords').innerText = s.records;
+        document.getElementById('admDbSize').innerText = s.db_size_est;
+
+        const r2 = await fetch(API+'/admin/users', { headers: getHeaders() });
+        const users = await r2.json();
+        const tbody = document.getElementById('adminUserList'); tbody.innerHTML = '';
+        users.forEach(u => {
+            const date = new Date(u.created_at).toLocaleDateString();
+            tbody.insertAdjacentHTML('beforeend', \`<tr><td>\${u.username}</td><td>\${date}</td><td>\${u.rec_count}</td><td><button style="padding:4px 8px; background:#b91c1c; border:none; color:#fff; border-radius:4px; cursor:pointer;" onclick="deleteUser('\${u.uid}')">删除</button></td></tr>\`);
+        });
+    }
+    async function deleteUser(uid) {
+        if(!confirm('危险操作：确定要删除该用户及其所有记录吗？')) return;
+        const r = await fetch(API+'/admin/users?uid='+uid, { method:'DELETE', headers: getHeaders() });
+        if(r.status===200) loadAdminData(); else alert('Error');
     }
 
     // --- Stats & Home List ---
@@ -559,10 +692,7 @@ async function serveFrontend() {
         document.getElementById('sScore').innerText = s.avg_satisfaction;
         document.getElementById('sOrgasm').innerText = s.total_orgasms;
         
-        Chart.defaults.color = '#666';
-        Chart.defaults.responsive = true;
-        Chart.defaults.maintainAspectRatio = false;
-        
+        Chart.defaults.color = '#666'; Chart.defaults.responsive = true; Chart.defaults.maintainAspectRatio = false;
         if(chart1) chart1.destroy(); if(chart2) chart2.destroy();
         
         const ctx1 = document.getElementById('chartType').getContext('2d');
@@ -656,7 +786,6 @@ async function serveFrontend() {
     function openModal(isEdit) {
         document.getElementById('modalOverlay').style.display = 'flex';
         document.getElementById('formTitle').innerText = isEdit ? '编辑' : '新记录';
-        // 显示/隐藏删除按钮
         document.getElementById('deleteBtn').style.display = isEdit ? 'block' : 'none';
         if(!isEdit) {
             document.getElementById('recordId').value = '';
@@ -710,8 +839,6 @@ async function serveFrontend() {
            historyPage=1; document.getElementById('timelineContainer').innerHTML=''; historyHasMore=true; loadHistory();
        }
     }
-    
-    // 删除当前记录
     async function deleteCurrentRecord() {
        const id = document.getElementById('recordId').value;
        if(!id || !confirm('确定要删除这条记录吗？此操作不可撤销。')) return;
@@ -729,13 +856,14 @@ async function serveFrontend() {
     function switchView(v, el) {
         document.querySelectorAll('.dock-item').forEach(d => d.classList.remove('active'));
         if(el) el.classList.add('active');
-        ['home','leaderboard','profile','history'].forEach(name => {
+        ['home','leaderboard','profile','history','admin'].forEach(name => {
            const div = document.getElementById('view-'+name);
            if(name === v) { div.classList.remove('hidden'); div.style.animation='slideUp 0.3s'; }
            else div.classList.add('hidden');
         });
         if(v==='leaderboard') loadLeaderboard();
         if(v==='history' && document.getElementById('timelineContainer').innerHTML==='') loadHistory();
+        if(v==='admin' && adminPass) loadAdminData();
     }
     async function loadLeaderboard() {
         const r = await fetch(API+'/leaderboard', { headers: getHeaders() });
