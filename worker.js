@@ -1,10 +1,10 @@
 /**
- * 秘密花园 (Secret Garden) - v7.5 Admin Edition
- * 特性: 导航栏融合设计 + 管理员后台 + 全中文化 + 沉浸式体验
+ * 秘密花园 (Secret Garden) - v7.5.1 Admin Fix
+ * 修复: 管理后台登录验证路径错误
  */
 
 const DEFAULT_JWT_SECRET = 'change-this-secret-in-env-vars-please'; 
-const DEFAULT_ADMIN_PASS = '123456'; // 默认管理密码
+const DEFAULT_ADMIN_PASS = '123456'; // 默认管理密码，请在环境变量设置 ADMIN_PASSWORD
 
 const CORS_HEADERS = {
   'Access-Control-Allow-Origin': '*',
@@ -13,7 +13,7 @@ const CORS_HEADERS = {
   'Access-Control-Max-Age': '86400',
 };
 
-// --- 翻译映射表 ---
+// --- 翻译映射表 (保持不变) ---
 const TR_MAP = {
   'bedroom': '卧室', 'living_room': '客厅', 'bathroom': '浴室', 'hotel': '酒店', 'car': '车内', 'outdoor': '野战', 'office': '办公室', 'public_space': '公共场所', 'pool': '泳池', 'friend_house': '朋友家', 'other': '其他',
   'horny': '🔥 性致勃勃', 'romantic': '🌹 浪漫', 'passionate': '❤️‍🔥 激情', 'aggressive': '😈 暴躁/发泄', 'stressed': '😫 压力释放', 'lazy': '🛌 慵懒', 'bored': '🥱 无聊', 'happy': '🥰 开心', 'drunk': '🍷 微醺', 'high': '🌿 嗨大了', 'experimental': '🧪 猎奇', 'morning_wood': '🌅 晨勃', 'lonely': '🌑 孤独', 'sad': '😢 悲伤', 'none': '纯想象', 'fantasy': '特定幻想', 
@@ -33,7 +33,7 @@ export default {
     try {
       if (path === '/' || path === '/index.html') return serveFrontend();
       
-      // Admin Routes
+      // Admin Routes (优先匹配)
       if (path.startsWith('/api/admin')) return await handleAdmin(request, env);
 
       // Auth Routes
@@ -81,7 +81,7 @@ async function handleAdmin(req, env) {
         return jsonResponse({
             users: userCount.c,
             records: recordCount.c,
-            db_size_est: (recordCount.c * 0.5).toFixed(2) + ' KB' // 粗略估算
+            db_size_est: (recordCount.c * 0.5).toFixed(2) + ' KB'
         });
     }
 
@@ -93,12 +93,13 @@ async function handleAdmin(req, env) {
         if (req.method === 'DELETE') {
             const uid = url.searchParams.get('uid');
             if(!uid) return errorResponse('缺少UID');
+            // 删除用户前必须删除关联记录
             await env.DB.prepare('DELETE FROM records WHERE uid = ?').bind(uid).run();
             await env.DB.prepare('DELETE FROM users WHERE uid = ?').bind(uid).run();
             return jsonResponse({ message: '用户及其数据已删除' });
         }
     }
-    return errorResponse('Admin route not found', 404);
+    return errorResponse('Admin path not found: ' + path, 404);
 }
 
 // User Data Handlers
@@ -432,7 +433,7 @@ async function serveFrontend() {
        <button class="btn btn-outline" style="border-style:dashed; color:#666; margin-top:10px;" onclick="switchView('admin', null)">管理后台</button>
        
        <button class="btn" style="background:#333; color:#aaa; margin-top:20px;" onclick="logout()">退出登录</button>
-       <div style="text-align:center; margin-top:30px; font-size:0.7rem; color:#444;">v7.5 Admin Edition</div>
+       <div style="text-align:center; margin-top:30px; font-size:0.7rem; color:#444;">v7.5.1 Admin Fix</div>
     </div>
 
     <!-- 视图：管理后台 -->
@@ -649,15 +650,16 @@ async function serveFrontend() {
     // --- Admin Logic ---
     async function verifyAdmin() {
         const p = document.getElementById('adminPassInput').value;
-        adminPass = p; // temporarily set for request
-        const r = await fetch(API+'/api/admin/stats', { headers: getHeaders() });
+        adminPass = p; 
+        // 修复：这里之前写错了 API+'/api/admin/stats' 导致404
+        const r = await fetch(API+'/admin/stats', { headers: getHeaders() }); 
         if(r.status === 200) {
             localStorage.setItem('sg_admin_pass', p);
             document.getElementById('adminLoginBox').classList.add('hidden');
             document.getElementById('adminContent').classList.remove('hidden');
             loadAdminData();
         } else {
-            alert('验证失败');
+            alert('验证失败: 密码错误或网络异常');
             adminPass = null;
         }
     }
