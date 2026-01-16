@@ -1,6 +1,6 @@
 /**
- * 秘密花园 (Secret Garden) - v7.6 Smooth & About
- * 特性: 关于页面 + 丝滑过渡动画 + 渲染性能优化 + Admin修复版
+ * 秘密花园 (Secret Garden) - v7.7 Search Plus & Drawer
+ * 特性: 增强搜索 + 安全设置抽屉 + 丝滑动画 + Admin
  */
 
 const DEFAULT_JWT_SECRET = 'change-this-secret-in-env-vars-please'; 
@@ -13,7 +13,7 @@ const CORS_HEADERS = {
   'Access-Control-Max-Age': '86400',
 };
 
-// --- 翻译映射表 (保持不变) ---
+// --- 翻译映射表 ---
 const TR_MAP = {
   'bedroom': '卧室', 'living_room': '客厅', 'bathroom': '浴室', 'hotel': '酒店', 'car': '车内', 'outdoor': '野战', 'office': '办公室', 'public_space': '公共场所', 'pool': '泳池', 'friend_house': '朋友家', 'other': '其他',
   'horny': '🔥 性致勃勃', 'romantic': '🌹 浪漫', 'passionate': '❤️‍🔥 激情', 'aggressive': '😈 暴躁/发泄', 'stressed': '😫 压力释放', 'lazy': '🛌 慵懒', 'bored': '🥱 无聊', 'happy': '🥰 开心', 'drunk': '🍷 微醺', 'high': '🌿 嗨大了', 'experimental': '🧪 猎奇', 'morning_wood': '🌅 晨勃', 'lonely': '🌑 孤独', 'sad': '😢 悲伤', 'none': '纯想象', 'fantasy': '特定幻想', 
@@ -89,6 +89,7 @@ async function handleAdmin(req, env) {
     return errorResponse('Admin path not found', 404);
 }
 
+// 优化：搜索范围增加 activity_type
 async function getRecords(req, env, user) {
   const url = new URL(req.url);
   const page = Math.max(1, parseInt(url.searchParams.get('page')) || 1);
@@ -96,7 +97,11 @@ async function getRecords(req, env, user) {
   const search = (url.searchParams.get('search') || '').trim();
   let sql = `SELECT * FROM records WHERE uid = ?`;
   let params = [user.uid];
-  if (search) { sql += ` AND (data_json LIKE ? OR location LIKE ? OR mood LIKE ?)`; params.push(`%${search}%`, `%${search}%`, `%${search}%`); }
+  if (search) { 
+      // 增加 activity_type 搜索
+      sql += ` AND (data_json LIKE ? OR location LIKE ? OR mood LIKE ? OR activity_type LIKE ?)`; 
+      params.push(`%${search}%`, `%${search}%`, `%${search}%`, `%${search}%`); 
+  }
   sql += ` ORDER BY datetime DESC LIMIT ? OFFSET ?`; params.push(limit, offset);
   const { results } = await env.DB.prepare(sql).bind(...params).all();
   const records = results.map(r => { let extra = {}; try { extra = JSON.parse(r.data_json || '{}'); } catch(e) {} return { ...r, ...extra, data_json: undefined }; });
@@ -232,22 +237,31 @@ async function serveFrontend() {
         transition: opacity 0.35s cubic-bezier(0.2, 0.8, 0.2, 1), transform 0.35s cubic-bezier(0.2, 0.8, 0.2, 1);
         will-change: opacity, transform;
     }
-    .view-section.active {
-        display: block;
-        opacity: 1;
-        transform: translateY(0);
-    }
-    /* 列表性能优化 */
+    .view-section.active { display: block; opacity: 1; transform: translateY(0); }
+    
     .record-card { 
-        content-visibility: auto; 
-        contain-intrinsic-size: 80px;
+        content-visibility: auto; contain-intrinsic-size: 80px;
         display: flex; align-items: center; padding: 16px; border-radius: 16px; 
         background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.05); 
         margin-bottom: 10px; transition: transform 0.15s; cursor: pointer; 
     }
     .record-card:active { transform: scale(0.98); background: rgba(255,255,255,0.06); }
     
-    /* 图表自适应 */
+    /* 搜索栏优化 */
+    .search-wrapper { position: relative; flex: 1; }
+    .search-input { width: 100%; background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.1); color: #fff; padding: 10px 35px 10px 15px; border-radius: 20px; font-size: 0.9rem; transition: 0.3s; }
+    .search-input:focus { background: rgba(255,255,255,0.1); border-color: var(--primary); }
+    .search-clear { position: absolute; right: 10px; top: 50%; transform: translateY(-50%); width: 20px; height: 20px; background: rgba(255,255,255,0.2); border-radius: 50%; color: #000; display: flex; align-items: center; justify-content: center; font-size: 12px; cursor: pointer; opacity: 0; visibility: hidden; transition: 0.2s; }
+    .search-wrapper.has-text .search-clear { opacity: 1; visibility: visible; }
+
+    /* 安全设置抽屉 */
+    .drawer-header { display: flex; justify-content: space-between; align-items: center; cursor: pointer; padding: 5px 0; }
+    .drawer-arrow { font-size: 0.8rem; color: #666; transition: transform 0.3s ease; }
+    .drawer-content { max-height: 0; overflow: hidden; transition: max-height 0.4s cubic-bezier(0.4, 0, 0.2, 1); border-top: 1px solid transparent; }
+    .drawer-open .drawer-arrow { transform: rotate(180deg); color: var(--primary); }
+    .drawer-open .drawer-content { border-top-color: rgba(255,255,255,0.05); padding-top: 20px; margin-top: 15px; }
+
+    /* 图表与通用 */
     .charts-wrapper { display: flex; flex-direction: row; gap: 15px; height: 220px; padding: 15px; }
     .chart-box-main { flex: 2; position: relative; min-width: 0; display: flex; align-items: center; }
     .chart-box-side { flex: 1; position: relative; max-width: 180px; display: flex; align-items: center; justify-content: center; }
@@ -265,15 +279,12 @@ async function serveFrontend() {
     .pulse-ring { position: absolute; width: 200px; height: 200px; border-radius: 50%; border: 1px solid rgba(217, 70, 239, 0.3); animation: pulse 2s infinite; z-index: -1; }
     @keyframes pulse { 0% { transform: scale(0.8); opacity: 1; } 100% { transform: scale(1.5); opacity: 0; } }
 
-    /* 时光轴 */
     .timeline { position: relative; padding-left: 20px; border-left: 2px solid rgba(255,255,255,0.1); margin-left: 10px; }
     .timeline-item { position: relative; margin-bottom: 30px; }
     .timeline-dot { position: absolute; left: -26px; top: 0; width: 10px; height: 10px; border-radius: 50%; background: var(--bg-deep); border: 2px solid var(--primary); }
     .timeline-date { font-size: 0.8rem; color: var(--primary); font-weight: bold; margin-bottom: 5px; }
     .timeline-content { background: rgba(255,255,255,0.03); border-radius: 12px; padding: 12px; border: 1px solid rgba(255,255,255,0.05); transition: background 0.2s; }
-    .timeline-content:active { background: rgba(255,255,255,0.08); }
-
-    /* 底部 Dock */
+    
     .dock-nav { position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%); width: 95%; max-width: 480px; height: 60px; background: rgba(20, 20, 25, 0.9); backdrop-filter: blur(20px); -webkit-backdrop-filter: blur(20px); border: 1px solid rgba(255,255,255,0.1); border-radius: 30px; display: flex; justify-content: space-evenly; align-items: center; z-index: 100; box-shadow: 0 10px 30px rgba(0,0,0,0.6); padding: 0 5px; }
     .dock-item { display: flex; flex-direction: column; align-items: center; justify-content: center; color: #666; font-size: 0.65rem; gap: 3px; transition: 0.3s; width: 60px; height: 100%; cursor: pointer; }
     .dock-item svg { width: 22px; height: 22px; stroke: currentColor; stroke-width: 2; fill: none; transition: 0.3s; }
@@ -284,7 +295,6 @@ async function serveFrontend() {
     .dock-item.timer-btn.active { color: #fff; }
     .dock-item.timer-btn:active svg { transform: scale(0.9); }
 
-    /* 弹窗与表单 */
     .modal-overlay { position: fixed; top: 0; left: 0; width: 100%; height: 100%; z-index: 200; background: rgba(0,0,0,0.8); backdrop-filter: blur(5px); display: none; align-items: flex-end; justify-content: center; opacity: 0; transition: opacity 0.3s; }
     .modal-overlay.show { opacity: 1; }
     .modal-content { width: 100%; max-width: 600px; background: #111; border-radius: 24px 24px 0 0; padding: 25px 20px 40px; max-height: 90vh; overflow-y: auto; border-top: 1px solid #333; transform: translateY(100%); transition: transform 0.3s cubic-bezier(0.16, 1, 0.3, 1); }
@@ -294,7 +304,7 @@ async function serveFrontend() {
     .stat-box { background: rgba(255,255,255,0.03); padding: 15px; border-radius: 16px; text-align: center; border: 1px solid rgba(255,255,255,0.05); }
     .stat-val { font-family: 'Cinzel', serif; font-size: 1.6rem; color: #fff; text-shadow: 0 0 10px rgba(255,255,255,0.3); }
     .stat-label { font-size: 0.7rem; color: var(--text-muted); margin-top: 4px; }
-
+    
     .segment-control { display: flex; background: #222; border-radius: 12px; padding: 4px; margin-bottom: 20px; border: 1px solid #333; }
     .segment-opt { flex: 1; text-align: center; padding: 10px; border-radius: 10px; color: #888; font-weight: 600; cursor: pointer; transition: 0.3s; }
     .segment-opt.active { background: #333; color: #fff; }
@@ -315,7 +325,6 @@ async function serveFrontend() {
     .admin-table th { text-align: left; padding: 10px; color: #666; border-bottom: 1px solid #333; }
     .admin-table td { padding: 10px; border-bottom: 1px solid #222; }
     
-    /* 关于弹窗 */
     .about-content { padding: 30px 20px; text-align: center; }
     .about-logo { font-family: 'Cinzel'; font-size: 2rem; background: linear-gradient(to right, var(--primary), var(--secondary)); -webkit-background-clip: text; -webkit-text-fill-color: transparent; margin-bottom: 10px; }
     .about-ver { font-size: 0.8rem; color: #666; margin-bottom: 20px; border: 1px solid #333; display: inline-block; padding: 2px 8px; border-radius: 10px; }
@@ -367,12 +376,18 @@ async function serveFrontend() {
           <div class="chart-box-main"><canvas id="chartHistory"></canvas></div>
           <div class="chart-box-side"><canvas id="chartType"></canvas></div>
        </div>
+       
+       <!-- 优化搜索栏 -->
        <div style="display:flex; gap:10px; margin-bottom:15px;">
-          <input type="text" id="searchInput" placeholder="搜索..." style="flex:1;">
-          <select id="statsRange" style="width:100px;" onchange="loadStats(this.value)">
+          <div class="search-wrapper" id="searchWrapper">
+             <input type="text" class="search-input" id="searchInput" placeholder="搜索心情、地点、类型...">
+             <div class="search-clear" onclick="clearSearch()">✕</div>
+          </div>
+          <select id="statsRange" style="width:90px; background:#222; border:1px solid rgba(255,255,255,0.1); color:#fff; border-radius:20px; padding:0 10px;" onchange="loadStats(this.value)">
              <option value="all">全部</option><option value="month">本月</option><option value="3_months">近3月</option><option value="year">今年</option>
           </select>
        </div>
+       
        <div id="listContainer"></div>
        <div id="scrollSentinel" style="text-align:center; padding:20px; font-size:0.8rem; color:#555;">加载中...</div>
     </div>
@@ -404,17 +419,25 @@ async function serveFrontend() {
           <h2 id="profileUser" style="margin:0 0 5px 0;">User</h2>
           <div style="font-size:0.8rem; color:#666;">秘密花园会员</div>
        </div>
-       <div class="card" style="background:rgba(255,255,255,0.02);">
-          <h4 style="margin:0 0 15px 0; border-bottom:1px solid #333; padding-bottom:10px;">安全设置</h4>
-          <div class="form-group"><input type="password" id="p-old" placeholder="当前密码"></div>
-          <div class="form-group"><input type="password" id="p-new" placeholder="新密码 (至少5位)"></div>
-          <button class="btn btn-outline" onclick="changePassword()">修改密码</button>
+       
+       <!-- 安全设置 (抽屉样式) -->
+       <div class="card" style="background:rgba(255,255,255,0.02); padding:0; overflow:hidden;" id="securityDrawer">
+          <div class="drawer-header" onclick="toggleDrawer()" style="padding:20px;">
+             <h4 style="margin:0;">安全设置</h4>
+             <span class="drawer-arrow">▼</span>
+          </div>
+          <div class="drawer-content">
+             <div style="padding:0 20px 20px 20px;">
+                <div class="form-group"><input type="password" id="p-old" placeholder="当前密码"></div>
+                <div class="form-group"><input type="password" id="p-new" placeholder="新密码 (至少5位)"></div>
+                <button class="btn btn-outline" onclick="changePassword()">修改密码</button>
+             </div>
+          </div>
        </div>
        
-       <!-- 新增：关于模块 -->
        <div class="glass card" onclick="openAbout()" style="cursor:pointer; display:flex; justify-content:space-between; align-items:center;">
            <span>关于 Secret Garden</span>
-           <span style="color:#666; font-size:0.8rem;">v7.6 ></span>
+           <span style="color:#666; font-size:0.8rem;">v7.7 ></span>
        </div>
 
        <button class="btn btn-outline" style="border-style:dashed; color:#666; margin-top:10px;" onclick="switchView('admin', null)">管理后台</button>
@@ -556,7 +579,7 @@ async function serveFrontend() {
           </div>
           <div class="about-content">
               <div class="about-logo">Secret Garden</div>
-              <div class="about-ver">v7.6 Pro Remastered</div>
+              <div class="about-ver">v7.7 Search & Drawer</div>
               <p style="color:#aaa; font-size:0.9rem; line-height:1.6;">
                   这里是你的私密花园，记录每一次真实的感受。<br>
                   数据存储于云端，仅你可见。<br>
@@ -598,7 +621,20 @@ async function serveFrontend() {
         loadStats();
         setupInfiniteScroll();
         checkTimerState();
-        let t; document.getElementById('searchInput').addEventListener('input', ()=>{ clearTimeout(t); t=setTimeout(()=>{resetList();loadRecords();},500); });
+        
+        // 搜索交互逻辑
+        const searchInput = document.getElementById('searchInput');
+        const searchWrapper = document.getElementById('searchWrapper');
+        let t; 
+        searchInput.addEventListener('input', (e)=>{ 
+            // 控制清除按钮显示
+            if(e.target.value.length > 0) searchWrapper.classList.add('has-text');
+            else searchWrapper.classList.remove('has-text');
+            
+            // 防抖搜索
+            clearTimeout(t); 
+            t=setTimeout(()=>{resetList();loadRecords();},500); 
+        });
         
         if(adminPass) {
              document.getElementById('adminPassInput').value = adminPass;
@@ -647,6 +683,26 @@ async function serveFrontend() {
     // 关于弹窗逻辑
     function openAbout() { document.getElementById('aboutOverlay').style.display = 'flex'; setTimeout(()=>document.getElementById('aboutOverlay').classList.add('show'),10); }
     function closeAbout() { document.getElementById('aboutOverlay').classList.remove('show'); setTimeout(()=>document.getElementById('aboutOverlay').style.display='none',300); }
+    
+    // 搜索清除逻辑
+    function clearSearch() {
+        const inp = document.getElementById('searchInput');
+        inp.value = '';
+        document.getElementById('searchWrapper').classList.remove('has-text');
+        resetList(); loadRecords();
+    }
+    
+    // 抽屉逻辑
+    function toggleDrawer() {
+        document.getElementById('securityDrawer').classList.toggle('drawer-open');
+        // 动态设置高度以触发动画
+        const content = document.querySelector('#securityDrawer .drawer-content');
+        if (document.getElementById('securityDrawer').classList.contains('drawer-open')) {
+            content.style.maxHeight = content.scrollHeight + "px";
+        } else {
+            content.style.maxHeight = "0px";
+        }
+    }
 
     // --- Admin Logic ---
     async function verifyAdmin() {
@@ -848,17 +904,9 @@ async function serveFrontend() {
     function switchView(v, el) {
         document.querySelectorAll('.dock-item').forEach(d => d.classList.remove('active'));
         if(el) el.classList.add('active');
-        
-        // 获取所有视图
         const views = document.querySelectorAll('.view-section');
         views.forEach(view => {
-            if(view.id === 'view-'+v) {
-                // 激活目标视图
-                view.classList.add('active');
-            } else {
-                // 隐藏其他视图
-                view.classList.remove('active');
-            }
+            if(view.id === 'view-'+v) view.classList.add('active'); else view.classList.remove('active');
         });
 
         if(v==='leaderboard') loadLeaderboard();
