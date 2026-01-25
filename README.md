@@ -1,7 +1,5 @@
 # 秘密花园 (Secret Garden) - 极乐统计
 
-[![Deploy to Cloudflare Workers](https://deploy.workers.cloudflare.com/button)](https://deploy.workers.cloudflare.com/?url=https://github.com/lujih/aisex)
-
 **秘密花园 (Secret Garden)** 是一个基于 Cloudflare Workers 和 D1 数据库构建的私密个人生活记录与统计工具。它无需购买服务器，完全免费托管在 Cloudflare 的边缘网络上，拥有极致的性能和安全性。
 
 > **当前版本**: v6.0 (D1 极速版)
@@ -19,6 +17,7 @@
 ## 🚀 快速部署 (推荐)
 
 ### 第一步：一键部署
+[![Deploy to Cloudflare Workers](https://deploy.workers.cloudflare.com/button)](https://deploy.workers.cloudflare.com/?url=https://github.com/lujih/aisex)
 点击上方的 **Deploy to Cloudflare Workers** 按钮。
 
 1.  Cloudflare 会引导你授权 GitHub 账号。
