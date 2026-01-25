@@ -6,4 +6,4 @@ compatibility_date = "2026-01-13"
 [[d1_databases]]
 binding = "DB"
 database_name = "aisex"
-database_id = ""
+database_id = "3a44be04-da70-4ae1-ad01-6240f352f586"
