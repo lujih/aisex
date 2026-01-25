@@ -18,6 +18,7 @@
 
 ### 第一步：一键部署
 [![Deploy to Cloudflare Workers](https://deploy.workers.cloudflare.com/button)](https://deploy.workers.cloudflare.com/?url=https://github.com/lujih/aisex)
+
 点击上方的 **Deploy to Cloudflare Workers** 按钮。
 
 1.  Cloudflare 会引导你授权 GitHub 账号。
