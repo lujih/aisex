@@ -1,11 +1,3 @@
-/**
- * 秘密花园 (Secret Garden) - v7.7 Search Plus & Drawer
- * 特性: 增强搜索 + 安全设置抽屉 + 丝滑动画 + Admin
- */
-
-const DEFAULT_JWT_SECRET = 'change-this-secret-in-env-vars-please'; 
-const DEFAULT_ADMIN_PASS = '123456'; 
-
 const CORS_HEADERS = {
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, OPTIONS',
@@ -24,88 +16,234 @@ const TR_MAP = {
   'missionary': '传教士', 'doggy': '后入', 'cowgirl': '女上位', 'reverse_cowgirl': '反向女上', 'spoons': '勺子式', 'standing': '站立', 'prone_bone': '俯卧后入', 'legs_up': '架腿'
 };
 
+// --- 日志辅助函数 ---
+const generateReqId = () => crypto.randomUUID().split('-')[0]; // 生成短请求ID
+const log = (reqId, level, msg, meta = {}) => {
+    const timestamp = new Date().toISOString();
+    // 生产环境建议使用 JSON 格式以便于机器分析
+    // console.log(JSON.stringify({ timestamp, reqId, level, msg, ...meta }));
+    
+    // 开发/简单调试模式使用文本格式:
+    const metaStr = Object.keys(meta).length ? JSON.stringify(meta) : '';
+    console.log(`[${timestamp}] [${reqId}] [${level}] ${msg} ${metaStr}`);
+};
+
 export default {
   async fetch(request, env, ctx) {
+    const reqId = generateReqId();
+    const startTime = Date.now();
     const url = new URL(request.url);
     const path = url.pathname;
-    if (request.method === 'OPTIONS') return new Response(null, { headers: CORS_HEADERS });
+    const clientIP = request.headers.get('cf-connecting-ip') || 'unknown';
+    const method = request.method;
 
+    // 1. 请求入口日志
+    if (method !== 'OPTIONS') { // 忽略 OPTIONS 预检请求以减少噪音
+        log(reqId, 'INFO', `Incoming Request: ${method} ${path}`, { ip: clientIP, ua: request.headers.get('user-agent') });
+    }
+
+    if (method === 'OPTIONS') return new Response(null, { headers: CORS_HEADERS });
+
+    let response;
     try {
-      if (path === '/' || path === '/index.html') return serveFrontend();
+      if (path === '/' || path === '/index.html') {
+          response = await serveFrontend();
+      }
       
       // Admin Routes
-      if (path.startsWith('/api/admin')) return await handleAdmin(request, env);
+      else if (path.startsWith('/api/admin')) {
+          log(reqId, 'WARN', `Admin Access Attempt`, { path }); // 审计日志
+          response = await handleAdmin(request, env, reqId);
+      }
 
       // Auth Routes
-      if (path === '/api/auth/register') return await registerUser(request, env);
-      if (path === '/api/auth/login') return await loginUser(request, env);
+      else if (path === '/api/auth/register') {
+          response = await registerUser(request, env, reqId);
+      }
+      else if (path === '/api/auth/login') {
+          response = await loginUser(request, env, reqId);
+      }
 
       // User Routes (Protected)
-      const user = await verifyAuth(request, env);
-      if (!user) return errorResponse('Unauthorized', 401);
-
-      if (path === '/api/auth/password') return await changePassword(request, env, user);
-      
-      if (path === '/api/records') {
-        if (request.method === 'GET') return await getRecords(request, env, user);
-        if (request.method === 'POST') return await createRecord(request, env, user);
-        if (request.method === 'PUT') return await updateRecord(request, env, user);
-        if (request.method === 'DELETE') return await deleteRecord(url, env, user);
-      } 
-      else if (path === '/api/records/detail') return await getRecordDetail(url, env, user);
-      else if (path === '/api/statistics') return await getStatistics(url, env, user);
-      else if (path === '/api/leaderboard') return await getLeaderboard(env);
-      
-      return new Response('Not found', { status: 404, headers: CORS_HEADERS });
-    } catch (error) { return errorResponse(error.message, 500); }
+      else {
+          const user = await verifyAuth(request, env);
+          if (!user) {
+              log(reqId, 'WARN', `Unauthorized Access`, { path, ip: clientIP });
+              response = errorResponse('Unauthorized', 401);
+          } else {
+              // 记录具体用户操作 (仅记录 ID，不记录内容)
+              if (method !== 'GET') {
+                  log(reqId, 'INFO', `User Action: ${user.username} (${user.uid})`, { method, path });
+              }
+              
+              if (path === '/api/auth/password') response = await changePassword(request, env, user);
+              else if (path === '/api/records') {
+                if (method === 'GET') response = await getRecords(request, env, user);
+                else if (method === 'POST') response = await createRecord(request, env, user);
+                else if (method === 'PUT') response = await updateRecord(request, env, user);
+                else if (method === 'DELETE') response = await deleteRecord(url, env, user);
+              } 
+              else if (path === '/api/records/detail') response = await getRecordDetail(url, env, user);
+              else if (path === '/api/statistics') response = await getStatistics(url, env, user);
+              else if (path === '/api/leaderboard') response = await getLeaderboard(env);
+              else response = new Response('Not found', { status: 404, headers: CORS_HEADERS });
+          }
+      }
+    } catch (error) {
+        // 2. 错误日志 (包含堆栈)
+        log(reqId, 'ERROR', `Unhandled Exception`, { error: error.message, stack: error.stack });
+        response = errorResponse('Internal Server Error', 500);
+    } finally {
+        // 3. 请求结束日志 (包含耗时)
+        if (method !== 'OPTIONS' && response) {
+            const duration = Date.now() - startTime;
+            log(reqId, 'INFO', `Request Completed`, { status: response.status, duration: `${duration}ms` });
+        }
+    }
+    
+    return response || new Response('Not found', { status: 404, headers: CORS_HEADERS });
   }
 };
 
 // --- 后端逻辑 ---
-async function handleAdmin(req, env) {
-    const adminPass = env.ADMIN_PASSWORD || DEFAULT_ADMIN_PASS;
+async function handleAdmin(req, env, reqId) {
+    // 1. 关键配置安全检查
+    if (!env.ADMIN_PASSWORD) {
+        log(reqId, 'CRITICAL', 'Config Error: ADMIN_PASSWORD environment variable is not set');
+        return errorResponse('Server Config Error: Admin password not configured', 500);
+    }
+
+    // 2. 验证管理员权限
+    const adminPass = env.ADMIN_PASSWORD;
     const providedPass = req.headers.get('X-Admin-Pass');
-    if (providedPass !== adminPass) return errorResponse('管理员密码错误', 403);
+
+    if (providedPass !== adminPass) {
+        // 记录具体的鉴权失败原因和来源IP，有助于发现爆破攻击
+        log(reqId, 'WARN', 'Admin Auth Failed: Invalid Password', { 
+            ip: req.headers.get('cf-connecting-ip') 
+        });
+        return errorResponse('管理员密码错误', 403);
+    }
+
+    log(reqId, 'INFO', 'Admin Auth Success');
+
     const url = new URL(req.url);
     const path = url.pathname;
-    if (path === '/api/admin/stats') {
-        const userCount = await env.DB.prepare('SELECT count(*) as c FROM users').first();
-        const recordCount = await env.DB.prepare('SELECT count(*) as c FROM records').first();
-        return jsonResponse({ users: userCount.c, records: recordCount.c, db_size_est: (recordCount.c * 0.5).toFixed(2) + ' KB' });
-    }
-    if (path === '/api/admin/users') {
-        if (req.method === 'GET') {
-            const { results } = await env.DB.prepare('SELECT uid, username, created_at, (SELECT count(*) FROM records WHERE records.uid = users.uid) as rec_count FROM users ORDER BY rec_count DESC').all();
-            return jsonResponse(results);
+
+    try {
+        // --- 路由：系统概览统计 ---
+        if (path === '/api/admin/stats') {
+            const userCount = await env.DB.prepare('SELECT count(*) as c FROM users').first();
+            const recordCount = await env.DB.prepare('SELECT count(*) as c FROM records').first();
+            
+            // 简单的数据库大小估算 (假设每条记录平均占用 0.5KB)
+            const dbSizeEst = (recordCount.c * 0.5).toFixed(2) + ' KB';
+
+            log(reqId, 'INFO', 'Admin fetched system stats');
+            
+            return jsonResponse({ 
+                users: userCount.c, 
+                records: recordCount.c, 
+                db_size_est: dbSizeEst 
+            });
         }
-        if (req.method === 'DELETE') {
-            const uid = url.searchParams.get('uid');
-            if(!uid) return errorResponse('缺少UID');
-            await env.DB.prepare('DELETE FROM records WHERE uid = ?').bind(uid).run();
-            await env.DB.prepare('DELETE FROM users WHERE uid = ?').bind(uid).run();
-            return jsonResponse({ message: '用户及其数据已删除' });
+
+        // --- 路由：用户管理 ---
+        if (path === '/api/admin/users') {
+            // 获取用户列表
+            if (req.method === 'GET') {
+                const { results } = await env.DB.prepare(`
+                    SELECT 
+                        uid, 
+                        username, 
+                        created_at, 
+                        (SELECT count(*) FROM records WHERE records.uid = users.uid) as rec_count 
+                    FROM users 
+                    ORDER BY rec_count DESC
+                `).all();
+                
+                return jsonResponse(results);
+            }
+
+            // 删除用户 (危险操作)
+            if (req.method === 'DELETE') {
+                const uid = url.searchParams.get('uid');
+                if (!uid) return errorResponse('缺少UID参数');
+
+                // 审计：记录高危操作的目标
+                log(reqId, 'WARN', 'Admin executing USER DELETE', { targetUid: uid });
+
+                // 执行删除：先删记录，再删用户 (虽然 Schema 中定义了 ON DELETE CASCADE，但显式删除更稳健)
+                await env.DB.prepare('DELETE FROM records WHERE uid = ?').bind(uid).run();
+                const result = await env.DB.prepare('DELETE FROM users WHERE uid = ?').bind(uid).run();
+
+                if (result.meta.changes > 0) {
+                    log(reqId, 'INFO', 'User deleted successfully', { targetUid: uid });
+                    return jsonResponse({ message: '用户及其数据已删除' });
+                } else {
+                    return errorResponse('用户不存在', 404);
+                }
+            }
         }
+
+        return errorResponse('Admin path not found', 404);
+
+    } catch (error) {
+        // 捕获数据库或其他内部错误，防止崩溃，并记录堆栈
+        log(reqId, 'ERROR', 'Admin operation failed', { error: error.message, stack: error.stack });
+        return errorResponse('Admin operation error', 500);
     }
-    return errorResponse('Admin path not found', 404);
 }
 
-// 优化：搜索范围增加 activity_type
+// 优化：使用 FTS5 全文搜索进行联合查询
 async function getRecords(req, env, user) {
   const url = new URL(req.url);
   const page = Math.max(1, parseInt(url.searchParams.get('page')) || 1);
-  const limit = 20; const offset = (page - 1) * limit;
+  const limit = 20; 
+  const offset = (page - 1) * limit;
   const search = (url.searchParams.get('search') || '').trim();
-  let sql = `SELECT * FROM records WHERE uid = ?`;
-  let params = [user.uid];
-  if (search) { 
-      // 增加 activity_type 搜索
-      sql += ` AND (data_json LIKE ? OR location LIKE ? OR mood LIKE ? OR activity_type LIKE ?)`; 
-      params.push(`%${search}%`, `%${search}%`, `%${search}%`, `%${search}%`); 
+  
+  let sql, params;
+
+  if (search) {
+      // --- FTS 搜索模式 ---
+      // 使用 MATCH 语法，并在词尾加上 * 以支持前缀匹配 (如 "bed" 匹配 "bedroom")
+      // 注意：这里先查 FTS 表拿到 ID，再 JOIN 主表获取详情
+      // 双重保险：WHERE r.uid = ? 确保即使 FTS 索引错乱也不会越权
+      
+      // 处理搜索关键词：简单的清理，防止语法错误
+      const safeSearch = search.replace(/"/g, '').split(/\s+/).map(w => `"${w}"*`).join(' AND ');
+      
+      sql = `
+        SELECT r.* 
+        FROM records r
+        JOIN records_fts f ON r.id = f.record_id
+        WHERE r.uid = ? 
+        AND records_fts MATCH ?
+        ORDER BY r.datetime DESC 
+        LIMIT ? OFFSET ?
+      `;
+      params = [user.uid, safeSearch, limit, offset];
+  } else {
+      // --- 普通浏览模式 (无搜索) ---
+      // 保持原有逻辑，利用 idx_records_user_datetime 索引
+      sql = `SELECT * FROM records WHERE uid = ? ORDER BY datetime DESC LIMIT ? OFFSET ?`;
+      params = [user.uid, limit, offset];
   }
-  sql += ` ORDER BY datetime DESC LIMIT ? OFFSET ?`; params.push(limit, offset);
-  const { results } = await env.DB.prepare(sql).bind(...params).all();
-  const records = results.map(r => { let extra = {}; try { extra = JSON.parse(r.data_json || '{}'); } catch(e) {} return { ...r, ...extra, data_json: undefined }; });
-  return jsonResponse({ records, page });
+
+  try {
+      const { results } = await env.DB.prepare(sql).bind(...params).all();
+      const records = results.map(r => { 
+          let extra = {}; 
+          try { extra = JSON.parse(r.data_json || '{}'); } catch(e) {} 
+          return { ...r, ...extra, data_json: undefined }; 
+      });
+      return jsonResponse({ records, page });
+  } catch (e) {
+      console.error("Search Error:", e);
+      // 如果 FTS 表不存在(未迁移)或其他错误，回退到空列表而不是报错
+      return jsonResponse({ records: [], page, error: "Search failed" });
+  }
 }
 async function getRecordDetail(url, env, user) {
     const id = url.searchParams.get('id');
@@ -162,10 +300,14 @@ async function registerUser(req, env) {
   try { await env.DB.prepare('INSERT INTO users (uid, username, password_hash, created_at) VALUES (?, ?, ?, ?)').bind(generateId(), username, await hashPassword(password), new Date().toISOString()).run(); return jsonResponse({ message: '注册成功' }); } catch (e) { return errorResponse('用户名已存在'); }
 }
 async function loginUser(req, env) {
+  // 强制要求环境变量
+  if (!env.JWT_SECRET) return errorResponse('Server Config Error: JWT_SECRET not set', 500);
+
   const { username, password } = await req.json();
   const user = await env.DB.prepare('SELECT * FROM users WHERE username = ?').bind(username).first();
   if (!user || (await hashPassword(password)) !== user.password_hash) return errorResponse('用户或密码错误', 401);
-  const token = await signJwt({ uid: user.uid, username: user.username }, env.JWT_SECRET || DEFAULT_JWT_SECRET);
+  
+  const token = await signJwt({ uid: user.uid, username: user.username }, env.JWT_SECRET);
   return jsonResponse({ token, username });
 }
 async function changePassword(req, env, user) {
@@ -184,7 +326,21 @@ function splitData(data, uid, id) {
     return { core, extra };
 }
 async function hashPassword(pw) { const hash = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(pw)); return [...new Uint8Array(hash)].map(b => b.toString(16).padStart(2, '0')).join(''); }
-async function verifyAuth(request, env) { const h = request.headers.get('Authorization'); if (!h || !h.startsWith('Bearer ')) return null; try { return await verifyJwt(h.split(' ')[1], env.JWT_SECRET || DEFAULT_JWT_SECRET); } catch (e) { return null; } }
+async function verifyAuth(request, env) { 
+    // 强制要求环境变量
+    if (!env.JWT_SECRET) {
+        console.error('Missing JWT_SECRET in environment variables');
+        return null; 
+    }
+
+    const h = request.headers.get('Authorization'); 
+    if (!h || !h.startsWith('Bearer ')) return null; 
+    try { 
+        return await verifyJwt(h.split(' ')[1], env.JWT_SECRET); 
+    } catch (e) { 
+        return null; 
+    } 
+}
 async function signJwt(payload, secret) { const h = b64url(JSON.stringify({ alg: 'HS256', typ: 'JWT' })); const b = b64url(JSON.stringify({ ...payload, exp: Math.floor(Date.now()/1000)+604800 })); const k = await crypto.subtle.importKey('raw', new TextEncoder().encode(secret), { name: 'HMAC', hash: 'SHA-256' }, false, ['sign']); const s = await crypto.subtle.sign('HMAC', k, new TextEncoder().encode(`${h}.${b}`)); return `${h}.${b}.${b64url(s)}`; }
 async function verifyJwt(token, secret) { const [h, b, s] = token.split('.'); const k = await crypto.subtle.importKey('raw', new TextEncoder().encode(secret), { name: 'HMAC', hash: 'SHA-256' }, false, ['verify']); if (!await crypto.subtle.verify('HMAC', k, b64urlDecode(s), new TextEncoder().encode(`${h}.${b}`))) throw new Error('Invalid'); const p = JSON.parse(new TextDecoder().decode(b64urlDecode(b))); if (p.exp < Date.now()/1000) throw new Error('Expired'); return p; }
 function b64url(s) { return (typeof s==='string'?btoa(s):btoa(String.fromCharCode(...new Uint8Array(s)))).replace(/\+/g,'-').replace(/\//g,'_').replace(/=+$/,''); }
