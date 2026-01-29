@@ -17,46 +17,50 @@ const TR_MAP = {
 };
 
 // --- 日志辅助函数 ---
-const generateReqId = () => crypto.randomUUID().split('-')[0]; // 生成短请求ID
+const generateReqId = () => crypto.randomUUID().split('-')[0];
 const log = (reqId, level, msg, meta = {}) => {
-    const timestamp = new Date().toISOString();
-    // 生产环境建议使用 JSON 格式以便于机器分析
-    // console.log(JSON.stringify({ timestamp, reqId, level, msg, ...meta }));
-    
-    // 开发/简单调试模式使用文本格式:
+    // 简化日志输出，生产环境可只保留 console.log(JSON.stringify(...))
     const metaStr = Object.keys(meta).length ? JSON.stringify(meta) : '';
-    console.log(`[${timestamp}] [${reqId}] [${level}] ${msg} ${metaStr}`);
+    console.log(`[${new Date().toISOString()}] [${reqId}] [${level}] ${msg} ${metaStr}`);
 };
+
+// 优化：使用 UUID 替代 Math.random
+function generateId() { return crypto.randomUUID().split('-')[0]; } // 使用短 UUID 或完整 UUID
 
 export default {
   async fetch(request, env, ctx) {
-    const reqId = generateReqId();
+    // 1. 初始化请求上下文
+    const reqId = generateReqId(); // 生成唯一请求ID用于全链路追踪
     const startTime = Date.now();
     const url = new URL(request.url);
     const path = url.pathname;
     const clientIP = request.headers.get('cf-connecting-ip') || 'unknown';
     const method = request.method;
 
-    // 1. 请求入口日志
-    if (method !== 'OPTIONS') { // 忽略 OPTIONS 预检请求以减少噪音
+    // 2. 记录请求入口日志 (忽略 OPTIONS 预检请求以减少噪音)
+    if (method !== 'OPTIONS') { 
         log(reqId, 'INFO', `Incoming Request: ${method} ${path}`, { ip: clientIP, ua: request.headers.get('user-agent') });
     }
 
+    // 3. 处理 CORS 预检
     if (method === 'OPTIONS') return new Response(null, { headers: CORS_HEADERS });
 
     let response;
     try {
+      // 4. 路由分发
+      
+      // 前端页面
       if (path === '/' || path === '/index.html') {
           response = await serveFrontend();
       }
       
-      // Admin Routes
+      // 管理员接口 (传入 reqId 用于审计)
       else if (path.startsWith('/api/admin')) {
-          log(reqId, 'WARN', `Admin Access Attempt`, { path }); // 审计日志
+          log(reqId, 'WARN', `Admin Access Attempt`, { path }); 
           response = await handleAdmin(request, env, reqId);
       }
 
-      // Auth Routes
+      // 认证接口 (传入 reqId 用于审计)
       else if (path === '/api/auth/register') {
           response = await registerUser(request, env, reqId);
       }
@@ -64,14 +68,16 @@ export default {
           response = await loginUser(request, env, reqId);
       }
 
-      // User Routes (Protected)
+      // 用户保护接口
       else {
           const user = await verifyAuth(request, env);
+          
           if (!user) {
+              // 记录未授权访问尝试
               log(reqId, 'WARN', `Unauthorized Access`, { path, ip: clientIP });
               response = errorResponse('Unauthorized', 401);
           } else {
-              // 记录具体用户操作 (仅记录 ID，不记录内容)
+              // 记录具体用户操作 (仅记录动作元数据，不记录敏感 payload)
               if (method !== 'GET') {
                   log(reqId, 'INFO', `User Action: ${user.username} (${user.uid})`, { method, path });
               }
@@ -90,11 +96,11 @@ export default {
           }
       }
     } catch (error) {
-        // 2. 错误日志 (包含堆栈)
+        // 5. 全局错误捕获 (防止 Worker 崩溃并泄露堆栈)
         log(reqId, 'ERROR', `Unhandled Exception`, { error: error.message, stack: error.stack });
         response = errorResponse('Internal Server Error', 500);
     } finally {
-        // 3. 请求结束日志 (包含耗时)
+        // 6. 请求结束日志 (包含耗时统计)
         if (method !== 'OPTIONS' && response) {
             const duration = Date.now() - startTime;
             log(reqId, 'INFO', `Request Completed`, { status: response.status, duration: `${duration}ms` });
@@ -107,92 +113,48 @@ export default {
 
 // --- 后端逻辑 ---
 async function handleAdmin(req, env, reqId) {
-    // 1. 关键配置安全检查
-    if (!env.ADMIN_PASSWORD) {
-        log(reqId, 'CRITICAL', 'Config Error: ADMIN_PASSWORD environment variable is not set');
-        return errorResponse('Server Config Error: Admin password not configured', 500);
+    if (!env.ADMIN_PASSWORD) return errorResponse('Config Error', 500);
+    if (req.headers.get('X-Admin-Pass') !== env.ADMIN_PASSWORD) {
+        log(reqId, 'WARN', 'Admin Auth Failed', { ip: req.headers.get('cf-connecting-ip') });
+        return errorResponse('Password Error', 403);
     }
-
-    // 2. 验证管理员权限
-    const adminPass = env.ADMIN_PASSWORD;
-    const providedPass = req.headers.get('X-Admin-Pass');
-
-    if (providedPass !== adminPass) {
-        // 记录具体的鉴权失败原因和来源IP，有助于发现爆破攻击
-        log(reqId, 'WARN', 'Admin Auth Failed: Invalid Password', { 
-            ip: req.headers.get('cf-connecting-ip') 
-        });
-        return errorResponse('管理员密码错误', 403);
-    }
-
-    log(reqId, 'INFO', 'Admin Auth Success');
 
     const url = new URL(req.url);
     const path = url.pathname;
 
-    try {
-        // --- 路由：系统概览统计 ---
-        if (path === '/api/admin/stats') {
-            const userCount = await env.DB.prepare('SELECT count(*) as c FROM users').first();
-            const recordCount = await env.DB.prepare('SELECT count(*) as c FROM records').first();
-            
-            // 简单的数据库大小估算 (假设每条记录平均占用 0.5KB)
-            const dbSizeEst = (recordCount.c * 0.5).toFixed(2) + ' KB';
-
-            log(reqId, 'INFO', 'Admin fetched system stats');
-            
-            return jsonResponse({ 
-                users: userCount.c, 
-                records: recordCount.c, 
-                db_size_est: dbSizeEst 
-            });
-        }
-
-        // --- 路由：用户管理 ---
-        if (path === '/api/admin/users') {
-            // 获取用户列表
-            if (req.method === 'GET') {
-                const { results } = await env.DB.prepare(`
-                    SELECT 
-                        uid, 
-                        username, 
-                        created_at, 
-                        (SELECT count(*) FROM records WHERE records.uid = users.uid) as rec_count 
-                    FROM users 
-                    ORDER BY rec_count DESC
-                `).all();
-                
-                return jsonResponse(results);
-            }
-
-            // 删除用户 (危险操作)
-            if (req.method === 'DELETE') {
-                const uid = url.searchParams.get('uid');
-                if (!uid) return errorResponse('缺少UID参数');
-
-                // 审计：记录高危操作的目标
-                log(reqId, 'WARN', 'Admin executing USER DELETE', { targetUid: uid });
-
-                // 执行删除：先删记录，再删用户 (虽然 Schema 中定义了 ON DELETE CASCADE，但显式删除更稳健)
-                await env.DB.prepare('DELETE FROM records WHERE uid = ?').bind(uid).run();
-                const result = await env.DB.prepare('DELETE FROM users WHERE uid = ?').bind(uid).run();
-
-                if (result.meta.changes > 0) {
-                    log(reqId, 'INFO', 'User deleted successfully', { targetUid: uid });
-                    return jsonResponse({ message: '用户及其数据已删除' });
-                } else {
-                    return errorResponse('用户不存在', 404);
-                }
-            }
-        }
-
-        return errorResponse('Admin path not found', 404);
-
-    } catch (error) {
-        // 捕获数据库或其他内部错误，防止崩溃，并记录堆栈
-        log(reqId, 'ERROR', 'Admin operation failed', { error: error.message, stack: error.stack });
-        return errorResponse('Admin operation error', 500);
+    if (path === '/api/admin/stats') {
+        // 并行查询优化速度
+        const [uRes, rRes] = await Promise.all([
+            env.DB.prepare('SELECT count(*) as c FROM users').first(),
+            env.DB.prepare('SELECT count(*) as c FROM records').first()
+        ]);
+        return jsonResponse({ 
+            users: uRes.c, 
+            records: rRes.c, 
+            db_size_est: (rRes.c * 0.5).toFixed(2) + ' KB' 
+        });
     }
+
+    if (path === '/api/admin/users') {
+        if (req.method === 'GET') {
+            const { results } = await env.DB.prepare('SELECT uid, username, created_at, (SELECT count(*) FROM records WHERE records.uid = users.uid) as rec_count FROM users ORDER BY rec_count DESC').all();
+            return jsonResponse(results);
+        }
+        if (req.method === 'DELETE') {
+            const uid = url.searchParams.get('uid');
+            if (!uid) return errorResponse('Missing UID');
+            
+            // 优化：使用 batch 确保原子性 (D1 特性)
+            await env.DB.batch([
+                env.DB.prepare('DELETE FROM records WHERE uid = ?').bind(uid),
+                env.DB.prepare('DELETE FROM users WHERE uid = ?').bind(uid)
+            ]);
+            
+            log(reqId, 'INFO', 'Admin deleted user', { uid });
+            return jsonResponse({ message: 'User deleted' });
+        }
+    }
+    return errorResponse('Not found', 404);
 }
 
 // 优化：使用 FTS5 全文搜索进行联合查询
@@ -263,12 +225,6 @@ async function getRecords(req, env, user) {
       // 返回空列表而不是 500 错误，保证前端不白屏
       return jsonResponse({ records: [], page, error: "Query failed" });
   }
-}
-async function getDb(env) {
-  // 某些 D1 客户端库可能自动处理，但手动执行最保险
-  // 注意：这会增加一次往返，如果性能敏感，可以查阅 Cloudflare D1 最新文档关于 foreign_keys 的默认设置
-  await env.DB.prepare('PRAGMA foreign_keys = ON').run();
-  return env.DB;
 }
 async function getRecordDetail(url, env, user) {
     const id = url.searchParams.get('id');
@@ -483,16 +439,6 @@ async function serveFrontend() {
   <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+SC:wght@300;400;500;700&family=Cinzel:wght@400;700&display=swap" rel="stylesheet">
   <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
   <style>
-    // XSS 防护函数
-    function esc(s) {
-        if (s === null || s === undefined) return "";
-        return String(s)
-            .replace(/&/g, "&amp;")
-            .replace(/</g, "&lt;")
-            .replace(/>/g, "&gt;")
-            .replace(/"/g, "&quot;")
-            .replace(/'/g, "&#39;"); // 关键修正：防止 onclick='...' 闭合
-    }
     :root {
       --bg-deep: #050505;
       --primary: #d946ef; --secondary: #8b5cf6; --accent: #f43f5e;
@@ -880,8 +826,18 @@ async function serveFrontend() {
 
   <script>
     const API = '/api';
-    const TR_MAP = ${JSON.stringify(TR_MAP)};
+    const TR_MAP = \${JSON.stringify(TR_MAP)};
     function tr(k) { return TR_MAP[k] || k; }
+
+    function esc(s) {
+        if (s === null || s === undefined) return "";
+        return String(s)
+            .replace(/&/g, "&amp;")
+            .replace(/</g, "&lt;")
+            .replace(/>/g, "&gt;")
+            .replace(/"/g, "&quot;")
+            .replace(/'/g, "&#39;");
+    }
     
     let token = localStorage.getItem('sg_token');
     let user = localStorage.getItem('sg_user');
