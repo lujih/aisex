@@ -245,6 +245,12 @@ async function getRecords(req, env, user) {
       return jsonResponse({ records: [], page, error: "Search failed" });
   }
 }
+async function getDb(env) {
+  // 某些 D1 客户端库可能自动处理，但手动执行最保险
+  // 注意：这会增加一次往返，如果性能敏感，可以查阅 Cloudflare D1 最新文档关于 foreign_keys 的默认设置
+  await env.DB.prepare('PRAGMA foreign_keys = ON').run();
+  return env.DB;
+}
 async function getRecordDetail(url, env, user) {
     const id = url.searchParams.get('id');
     const r = await env.DB.prepare('SELECT * FROM records WHERE id = ? AND uid = ?').bind(id, user.uid).first();
