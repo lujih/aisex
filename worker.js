@@ -422,7 +422,6 @@ function b64url(s) { return (typeof s==='string'?btoa(s):btoa(String.fromCharCod
 function b64urlDecode(s) { return Uint8Array.from(atob(s.replace(/-/g,'+').replace(/_/g,'/')), c => c.charCodeAt(0)); }
 function jsonResponse(data, status = 200) { return new Response(JSON.stringify(data), { status, headers: { ...CORS_HEADERS, 'Content-Type': 'application/json' } }); }
 function errorResponse(msg, status = 400) { return jsonResponse({ error: msg }, status); }
-function generateId() { return Date.now().toString(36) + Math.random().toString(36).substring(2, 6); }
 
 // ==========================================
 // 前端 HTML
