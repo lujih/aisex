@@ -206,43 +206,62 @@ async function getRecords(req, env, user) {
   let sql, params;
 
   if (search) {
-      // --- FTS 搜索模式 ---
-      // 使用 MATCH 语法，并在词尾加上 * 以支持前缀匹配 (如 "bed" 匹配 "bedroom")
-      // 注意：这里先查 FTS 表拿到 ID，再 JOIN 主表获取详情
-      // 双重保险：WHERE r.uid = ? 确保即使 FTS 索引错乱也不会越权
+      // --- FTS5 安全搜索逻辑 ---
+      // 1. 移除双引号防止语法错误
+      // 2. 将输入拆分为单词
+      // 3. 过滤空字符串
+      // 4. 为每个单词添加双引号和前缀通配符 (*)，构造 "AND" 查询
+      const terms = search.replace(/"/g, '')
+                          .split(/\s+/)
+                          .filter(t => t.length > 0)
+                          .map(w => `"${w}"*`);
       
-      // 处理搜索关键词：简单的清理，防止语法错误
-      const safeSearch = search.replace(/"/g, '').split(/\s+/).map(w => `"${w}"*`).join(' AND ');
-      
-      sql = `
-        SELECT r.* 
-        FROM records r
-        JOIN records_fts f ON r.id = f.record_id
-        WHERE r.uid = ? 
-        AND records_fts MATCH ?
-        ORDER BY r.datetime DESC 
-        LIMIT ? OFFSET ?
-      `;
-      params = [user.uid, safeSearch, limit, offset];
+      if (terms.length === 0) {
+          // 如果清理后无有效关键词，回退到普通列表
+          sql = `SELECT * FROM records WHERE uid = ? ORDER BY datetime DESC LIMIT ? OFFSET ?`;
+          params = [user.uid, limit, offset];
+      } else {
+          // 构造 MATCH 查询字符串，例如: "bed"* AND "happy"*
+          const safeSearch = terms.join(' AND ');
+          
+          sql = `
+            SELECT r.* 
+            FROM records r
+            JOIN records_fts f ON r.id = f.record_id
+            WHERE r.uid = ? 
+            AND records_fts MATCH ?
+            ORDER BY r.datetime DESC 
+            LIMIT ? OFFSET ?
+          `;
+          params = [user.uid, safeSearch, limit, offset];
+      }
   } else {
-      // --- 普通浏览模式 (无搜索) ---
-      // 保持原有逻辑，利用 idx_records_user_datetime 索引
+      // --- 普通浏览模式 ---
+      // 强制 uid 检查，利用 idx_records_uid_datetime 索引
       sql = `SELECT * FROM records WHERE uid = ? ORDER BY datetime DESC LIMIT ? OFFSET ?`;
       params = [user.uid, limit, offset];
   }
 
   try {
       const { results } = await env.DB.prepare(sql).bind(...params).all();
+      
+      // 数据处理：解析 JSON 并展平到对象中
       const records = results.map(r => { 
           let extra = {}; 
-          try { extra = JSON.parse(r.data_json || '{}'); } catch(e) {} 
+          try { 
+              extra = JSON.parse(r.data_json || '{}'); 
+          } catch(e) {
+              // 忽略损坏的 JSON，防止接口崩溃
+          } 
           return { ...r, ...extra, data_json: undefined }; 
       });
+      
       return jsonResponse({ records, page });
   } catch (e) {
-      console.error("Search Error:", e);
-      // 如果 FTS 表不存在(未迁移)或其他错误，回退到空列表而不是报错
-      return jsonResponse({ records: [], page, error: "Search failed" });
+      // 记录 FTS 错误（可能是数据库未迁移导致表不存在）
+      console.error("Search/DB Error:", e);
+      // 返回空列表而不是 500 错误，保证前端不白屏
+      return jsonResponse({ records: [], page, error: "Query failed" });
   }
 }
 async function getDb(env) {
@@ -300,28 +319,94 @@ async function getLeaderboard(env) {
     const { results } = await env.DB.prepare(`SELECT u.username, count(r.id) as total_records, sum(r.duration) as total_duration FROM records r JOIN users u ON r.uid = u.uid GROUP BY u.uid ORDER BY total_duration DESC LIMIT 50`).all();
     return jsonResponse(results);
 }
-async function registerUser(req, env) {
+async function registerUser(req, env, reqId) {
   const { username, password } = await req.json();
   if (!username || !password || username.length < 3) return errorResponse('无效参数');
-  try { await env.DB.prepare('INSERT INTO users (uid, username, password_hash, created_at) VALUES (?, ?, ?, ?)').bind(generateId(), username, await hashPassword(password), new Date().toISOString()).run(); return jsonResponse({ message: '注册成功' }); } catch (e) { return errorResponse('用户名已存在'); }
+  
+  try { 
+      const uid = generateId();
+      const salt = generateSalt(); // 生成唯一盐
+      const hash = await hashPassword(password, salt); // 带盐哈希
+
+      await env.DB.prepare('INSERT INTO users (uid, username, password_hash, salt, created_at) VALUES (?, ?, ?, ?, ?)')
+        .bind(uid, username, hash, salt, new Date().toISOString())
+        .run(); 
+      
+      log(reqId, 'INFO', `New User Registered`, { username, uid });
+      return jsonResponse({ message: '注册成功' }); 
+  } catch (e) { 
+      log(reqId, 'WARN', `Registration Failed`, { username, error: e.message });
+      return errorResponse('用户名已存在'); 
+  }
 }
-async function loginUser(req, env) {
-  // 强制要求环境变量
-  if (!env.JWT_SECRET) return errorResponse('Server Config Error: JWT_SECRET not set', 500);
+async function loginUser(req, env, reqId) {
+  if (!env.JWT_SECRET) return errorResponse('Config Error', 500);
 
   const { username, password } = await req.json();
   const user = await env.DB.prepare('SELECT * FROM users WHERE username = ?').bind(username).first();
-  if (!user || (await hashPassword(password)) !== user.password_hash) return errorResponse('用户或密码错误', 401);
   
+  if (!user) return errorResponse('用户或密码错误', 401); // 模糊错误信息
+
+  // 兼容性处理：如果老用户没有 salt (即 salt 为空字符串)，你需要决定是重置密码还是暂时允许不安全的 SHA256
+  // 这里假设所有新用户都有 salt。如果是旧系统迁移，建议判断 salt 是否为空来通过不同逻辑验证。
+  const salt = user.salt || ''; 
+  
+  // 计算输入密码的哈希
+  const inputHash = await hashPassword(password, salt);
+
+  // 比较哈希值
+  if (inputHash !== user.password_hash) {
+      log(reqId, 'WARN', `Login Failed: Wrong password`, { username });
+      return errorResponse('用户或密码错误', 401);
+  }
+  
+  log(reqId, 'INFO', `Login Success`, { username, uid: user.uid });
   const token = await signJwt({ uid: user.uid, username: user.username }, env.JWT_SECRET);
   return jsonResponse({ token, username });
 }
 async function changePassword(req, env, user) {
-  const { oldPassword, newPassword } = await req.json();
-  const dbUser = await env.DB.prepare('SELECT password_hash FROM users WHERE uid = ?').bind(user.uid).first();
-  if((await hashPassword(oldPassword)) !== dbUser.password_hash) return errorResponse('旧密码错误', 403);
-  await env.DB.prepare('UPDATE users SET password_hash = ? WHERE uid = ?').bind(await hashPassword(newPassword), user.uid).run();
-  return jsonResponse({ message: '修改成功' });
+    // 假设调用链中透传了 reqId，如果没有，生成一个新的用于追踪
+    const reqId = generateReqId(); 
+    const { oldPassword, newPassword } = await req.json();
+
+    if (!newPassword || newPassword.length < 5) {
+        return errorResponse('新密码长度不能少于5位');
+    }
+
+    // 1. 获取当前用户的哈希和盐
+    const dbUser = await env.DB.prepare('SELECT password_hash, salt FROM users WHERE uid = ?').bind(user.uid).first();
+    
+    if (!dbUser) {
+        log(reqId, 'ERROR', 'Change Password: User not found in DB', { uid: user.uid });
+        return errorResponse('用户不存在', 404);
+    }
+
+    // 2. 验证旧密码 (使用数据库中存储的盐)
+    // 注意：需确保 hashPassword 函数已升级为支持 PBKDF2(password, salt)
+    const currentSalt = dbUser.salt || ''; // 兼容旧数据
+    const oldHashCalc = await hashPassword(oldPassword, currentSalt);
+
+    if (oldHashCalc !== dbUser.password_hash) {
+        log(reqId, 'WARN', 'Change Password Failed: Old password incorrect', { uid: user.uid });
+        return errorResponse('旧密码错误', 403);
+    }
+
+    // 3. 生成新盐并加密新密码
+    const newSalt = generateSalt();
+    const newHash = await hashPassword(newPassword, newSalt);
+
+    // 4. 更新数据库
+    try {
+        await env.DB.prepare('UPDATE users SET password_hash = ?, salt = ?, updated_at = ? WHERE uid = ?')
+            .bind(newHash, newSalt, new Date().toISOString(), user.uid)
+            .run();
+        
+        log(reqId, 'INFO', 'Password Changed Successfully', { uid: user.uid });
+        return jsonResponse({ message: '修改成功' });
+    } catch (e) {
+        log(reqId, 'ERROR', 'Database Update Failed', { error: e.message });
+        return errorResponse('系统错误', 500);
+    }
 }
 function splitData(data, uid, id) {
     const coreMap = ['activity_type','datetime','duration','location','mood','satisfaction','orgasm_count','ejaculation_count'];
@@ -331,7 +416,35 @@ function splitData(data, uid, id) {
     ['duration','satisfaction','orgasm_count','ejaculation_count'].forEach(k => core[k] = parseInt(core[k]) || 0);
     return { core, extra };
 }
-async function hashPassword(pw) { const hash = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(pw)); return [...new Uint8Array(hash)].map(b => b.toString(16).padStart(2, '0')).join(''); }
+// 将 Hex 字符串转为 Uint8Array
+function hexToBuf(hex) {
+    return new Uint8Array(hex.match(/.{1,2}/g).map(byte => parseInt(byte, 16)));
+}
+
+// 将 Uint8Array 转为 Hex 字符串
+function bufToHex(buf) {
+    return [...new Uint8Array(buf)].map(b => b.toString(16).padStart(2, '0')).join('');
+}
+
+// 生成随机盐 (16 bytes)
+function generateSalt() {
+    const salt = new Uint8Array(16);
+    crypto.getRandomValues(salt);
+    return bufToHex(salt);
+}
+// 使用 PBKDF2 进行哈希
+async function hashPassword(password, saltHex) {
+    const enc = new TextEncoder();
+    const salt = hexToBuf(saltHex);
+    const keyMaterial = await crypto.subtle.importKey(
+        "raw", enc.encode(password), { name: "PBKDF2" }, false, ["deriveBits"]
+    );
+    const derivedBits = await crypto.subtle.deriveBits(
+        { name: "PBKDF2", salt: salt, iterations: 100000, hash: "SHA-256" },
+        keyMaterial, 256
+    );
+    return bufToHex(derivedBits);
+}
 async function verifyAuth(request, env) { 
     // 强制要求环境变量
     if (!env.JWT_SECRET) {
@@ -370,6 +483,16 @@ async function serveFrontend() {
   <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+SC:wght@300;400;500;700&family=Cinzel:wght@400;700&display=swap" rel="stylesheet">
   <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
   <style>
+    // XSS 防护函数
+    function esc(s) {
+        if (s === null || s === undefined) return "";
+        return String(s)
+            .replace(/&/g, "&amp;")
+            .replace(/</g, "&lt;")
+            .replace(/>/g, "&gt;")
+            .replace(/"/g, "&quot;")
+            .replace(/'/g, "&#39;"); // 关键修正：防止 onclick='...' 闭合
+    }
     :root {
       --bg-deep: #050505;
       --primary: #d946ef; --secondary: #8b5cf6; --accent: #f43f5e;
@@ -937,31 +1060,77 @@ async function serveFrontend() {
         const isM = item.activity_type === 'masturbation';
         const d = new Date(item.datetime);
         const dateStr = \`\${d.getMonth()+1}/\${d.getDate()} \${d.getHours()}:\${d.getMinutes().toString().padStart(2,'0')}\`;
-        let tags = []; if(item.mood) tags.push(tr(item.mood)); if(isM && item.stimulation) tags.push(tr(item.stimulation));
-        const html = \`<div class="record-card \${isM?'type-m':'type-i'}" onclick="editRecord('\${item.id}')"><div class="record-icon">\${isM ? '🖐' : '❤️'}</div><div style="flex:1;"><div style="display:flex; justify-content:space-between; color:#eee; font-weight:600; margin-bottom:4px;"><span>\${tr(item.location||'unknown')}</span><span style="color:\${isM?'var(--primary)':'var(--accent)'}">\${item.duration}分</span></div><div style="font-size:0.8rem; color:#888;">\${dateStr} · \${item.satisfaction}/10</div><div style="margin-top:6px; display:flex; gap:6px; flex-wrap:wrap;">\${tags.map(t=>\`<span style="background:rgba(255,255,255,0.1); padding:2px 6px; border-radius:4px; font-size:0.7rem;">\${t}</span>\`).join('')}</div></div></div>\`;
+        let tags = []; 
+        if(item.mood) tags.push(tr(item.mood)); 
+        if(isM && item.stimulation) tags.push(tr(item.stimulation));
+        
+        // 注意：这里用了 esc() 包裹所有可能包含用户输入的字段
+        const locStr = esc(tr(item.location||'unknown'));
+        const durStr = esc(item.duration);
+        const satStr = esc(item.satisfaction);
+        
+        // HTML 构造
+        const html = \`<div class="record-card \${isM?'type-m':'type-i'}" onclick="editRecord('\${esc(item.id)}')"><div class="record-icon">\${isM ? '🖐' : '❤️'}</div><div style="flex:1;"><div style="display:flex; justify-content:space-between; color:#eee; font-weight:600; margin-bottom:4px;"><span>\${locStr}</span><span style="color:\${isM?'var(--primary)':'var(--accent)'}">\${durStr}分</span></div><div style="font-size:0.8rem; color:#888;">\${dateStr} · \${satStr}/10</div><div style="margin-top:6px; display:flex; gap:6px; flex-wrap:wrap;">\${tags.map(t=>\`<span style="background:rgba(255,255,255,0.1); padding:2px 6px; border-radius:4px; font-size:0.7rem;">\${esc(t)}</span>\`).join('')}</div></div></div>\`;
         document.getElementById('listContainer').insertAdjacentHTML('beforeend', html);
     }
 
     // --- History Logic ---
     async function loadHistory() {
-        if(historyLoading || !historyHasMore) return; historyLoading = true;
-        const r = await fetch(\`\${API}/records?page=\${historyPage}\`, { headers: getHeaders() });
-        const d = await r.json();
-        const c = document.getElementById('timelineContainer');
-        if(d.records.length === 0) { historyHasMore=false; document.getElementById('historySentinel').innerText = '一切的开始'; }
-        else {
-            d.records.forEach(item => {
-                const isM = item.activity_type === 'masturbation';
-                const d = new Date(item.datetime);
-                const timeStr = \`\${d.getFullYear()}-\${d.getMonth()+1}-\${d.getDate()} \${d.getHours()}:\${d.getMinutes().toString().padStart(2,'0')}\`;
-                const html = \`<div class="timeline-item"><div class="timeline-dot" style="border-color:\${isM?'var(--primary)':'var(--accent)'}"></div><div class="timeline-date">\${timeStr}</div><div class="timeline-content" onclick="editRecord('\${item.id}')"><div style="display:flex; justify-content:space-between; margin-bottom:5px;"><strong style="color:#fff">\${isM?'独享':'欢愉'} · \${tr(item.location)}</strong><span>\${item.duration} 分钟</span></div><div style="font-size:0.85rem; color:#aaa;">\${item.experience || '无备注...'}</div></div></div>\`;
-                c.insertAdjacentHTML('beforeend', html);
-            });
-            historyPage++;
+        // 确保这些变量在外部作用域已定义
+        if (typeof historyLoading !== 'undefined' && historyLoading) return;
+        if (typeof historyHasMore !== 'undefined' && !historyHasMore) return;
+
+        historyLoading = true;
+
+        try {
+            const r = await fetch(\`\${API}/records?page=\${historyPage}\`, { headers: getHeaders()});
+            const d = await r.json();
+            const c = document.getElementById('timelineContainer');
+
+            if (!d.records || d.records.length === 0) { 
+                historyHasMore = false; 
+                document.getElementById('historySentinel').innerText = '一切的开始'; 
+            } else {
+                d.records.forEach(item => {
+                    const isM = item.activity_type === 'masturbation';
+                    const dateObj = new Date(item.datetime);
+
+                    const year = dateObj.getFullYear();
+                    const month = (dateObj.getMonth() + 1).toString().padStart(2, '0');
+                    const day = dateObj.getDate().toString().padStart(2, '0');
+                    const hour = dateObj.getHours().toString().padStart(2, '0');
+                    const minute = dateObj.getMinutes().toString().padStart(2, '0');
+                    const timeStr = \`\${year}-\${month}-\${day} \${hour}:\${minute}\`;
+
+                    const safeId = esc(item.id);
+                    const safeLocation = esc(tr(item.location || 'unknown'));
+                    const safeDuration = esc(item.duration);
+                    const safeExperience = esc(item.experience || '无备注...');
+
+                    // 注意：这里的 HTML 模板字符串也加了反斜杠转义
+                    const html = \`
+                    <div class="timeline-item">
+                        <div class="timeline-dot" style="border-color:\${isM ? 'var(--primary)' : 'var(--accent)'}"></div>
+                        <div class="timeline-date">\${timeStr}</div>
+                        <div class="timeline-content" onclick="editRecord('\${safeId}')">
+                            <div style="display:flex; justify-content:space-between; margin-bottom:5px;">
+                                <strong style="color:#fff">\${isM ? '独享' : '欢愉'} · \${safeLocation}</strong>
+                                <span>\${safeDuration} 分钟</span>
+                            </div>
+                            <div style="font-size:0.85rem; color:#aaa; white-space: pre-wrap;">\${safeExperience}</div>
+                        </div>
+                    </div>\`;
+
+                    c.insertAdjacentHTML('beforeend', html);
+                });
+                historyPage++;
+            }
+        } catch (e) {
+            console.error("History load error", e);
+        } finally {
+            historyLoading = false;
         }
-        historyLoading = false;
     }
-    
     // --- Timer ---
     function checkTimerState() { const start = localStorage.getItem('timerStart'); if(start) { showTimerOverlay(parseInt(start)); } }
     function startTimer() { const now = Date.now(); localStorage.setItem('timerStart', now); showTimerOverlay(now); }
