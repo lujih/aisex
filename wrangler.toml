@@ -1,9 +1,10 @@
 name = "aisex"
 main = "worker.js"
 compatibility_date = "2026-01-13"
+keep_vars = true
 
 # 部署按钮会自动覆盖这里的配置，或者提示用户创建
 [[d1_databases]]
 binding = "DB"
 database_name = "aisex"
-database_id = ""
+database_id = "3a44be04-da70-4ae1-ad01-6240f352f586"
