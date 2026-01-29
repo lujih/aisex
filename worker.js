@@ -825,7 +825,7 @@ async function serveFrontend() {
 
   <script>
     const API = '/api';
-    const TR_MAP = \${JSON.stringify(TR_MAP)};
+    const TR_MAP = ${JSON.stringify(TR_MAP)};
     function tr(k) { return TR_MAP[k] || k; }
 
     function esc(s) {
