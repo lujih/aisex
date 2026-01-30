@@ -970,7 +970,7 @@ async function serveFrontend() {
         const tbody = document.getElementById('adminUserList'); tbody.innerHTML = '';
         users.forEach(u => {
             const date = new Date(u.created_at).toLocaleDateString();
-            tbody.insertAdjacentHTML('beforeend', \`<tr><td>\${u.username}</td><td>\${date}</td><td>\${u.rec_count}</td><td><button style="padding:4px 8px; background:#b91c1c; border:none; color:#fff; border-radius:4px; cursor:pointer;" onclick="deleteUser('\${u.uid}')">删除</button></td></tr>\`);
+            tbody.insertAdjacentHTML('beforeend', \`<tr><td>\${esc(u.username)}</td><td>\${date}</td><td>\${u.rec_count}</td><td><button style="background:#b91c1c;color:#fff;border:none;border-radius:4px;cursor:pointer;" onclick="deleteUser('\${u.uid}')">Del</button></td></tr>\`);
         });
     }
     async function deleteUser(uid) {
@@ -1203,7 +1203,7 @@ async function serveFrontend() {
         const r = await fetch(API+'/leaderboard', { headers: getHeaders() });
         const list = await r.json();
         const b = document.getElementById('leaderboardBody'); b.innerHTML = '';
-        list.forEach((i, idx) => { b.insertAdjacentHTML('beforeend', \`<tr style="border-bottom:1px solid #222"><td style="padding:12px; color:\${idx<3?'var(--primary)':'#666'}">\${idx+1}</td><td>\${i.username}</td><td>\${Math.round(i.total_duration/60)}h</td><td>\${i.total_records}</td></tr>\`); });
+        list.forEach((i, idx) => { b.insertAdjacentHTML('beforeend', \`<tr style="border-bottom:1px solid #222"><td style="padding:12px; color:\${idx<3?'var(--primary)':'#666'}">\${idx+1}</td><td>\${esc(i.username)}</td><td>\${Math.round(i.total_duration/60)}h</td><td>\${i.total_records}</td></tr>\`); });
     }
     function setupInfiniteScroll() { 
         const obs = new IntersectionObserver(e=>{if(e[0].isIntersecting) loadRecords()}); obs.observe(document.getElementById('scrollSentinel'));
