@@ -91,6 +91,7 @@ export default {
               } 
               else if (path === '/api/records/detail') response = await getRecordDetail(url, env, user);
               else if (path === '/api/statistics') response = await getStatistics(request, env, user, ctx);
+              else if (path === '/api/search/suggest') response = await getSearchSuggestions(url, env, user);
               else if (path === '/api/leaderboard') response = await getLeaderboard(env, request, ctx);
               else response = new Response('Not found', { status: 404, headers: CORS_HEADERS });
           }
@@ -255,14 +256,12 @@ async function deleteRecord(url, env, user) {
   return jsonResponse({ message: '删除成功' });
 }
 async function getStatistics(req, env, user, ctx) {
-  // 1. 尝试读取缓存 (使用 URL 作为 Key)
   const cacheUrl = new URL(req.url);
   const cacheKey = new Request(cacheUrl.toString(), req);
   const cache = caches.default;
   let response = await cache.match(cacheKey);
   if (response) return response;
 
-  // 2. 数据库查询
   const url = new URL(req.url);
   const range = url.searchParams.get('range') || 'all';
   let timeFilter = '';
@@ -280,29 +279,31 @@ async function getStatistics(req, env, user, ctx) {
       avg(duration) as avg_duration 
       FROM records WHERE uid = ? ${timeFilter}`;
   
-  // 趋势图 (按月)
+  // 月度趋势
   const monthSql = `SELECT strftime('%Y-%m', datetime) as month, count(*) as count FROM records WHERE uid = ? ${timeFilter} GROUP BY month ORDER BY month DESC LIMIT 12`;
   
-  // [新增] 时段热力分布 (00-23点)
+  // 时段分布
   const hourSql = `SELECT strftime('%H', datetime) as hour, count(*) as count FROM records WHERE uid = ? ${timeFilter} GROUP BY hour`;
 
-  // 并行查询
-  const [stats, monthRes, hourRes] = await Promise.all([
+  // [新增] 热力图数据 (过去365天的每日数据)
+  const dailySql = `SELECT date(datetime) as day, count(*) as count FROM records WHERE uid = ? AND datetime >= date('now', '-1 year') GROUP BY day`;
+
+  const [stats, monthRes, hourRes, dailyRes] = await Promise.all([
       env.DB.prepare(sqlBase).bind(user.uid).first(),
       env.DB.prepare(monthSql).bind(user.uid).all(),
-      env.DB.prepare(hourSql).bind(user.uid).all()
+      env.DB.prepare(hourSql).bind(user.uid).all(),
+      env.DB.prepare(dailySql).bind(user.uid).all() // 新增
   ]);
 
   const records_by_month = {};
   if(monthRes.results) [...monthRes.results].reverse().forEach(row => records_by_month[row.month] = row.count);
 
-  // 处理时段数据 (填补 0-23 的空缺)
   const hour_distribution = new Array(24).fill(0);
-  if(hourRes.results) {
-      hourRes.results.forEach(row => {
-          hour_distribution[parseInt(row.hour)] = row.count;
-      });
-  }
+  if(hourRes.results) hourRes.results.forEach(row => hour_distribution[parseInt(row.hour)] = row.count);
+
+  // [新增] 处理热力图数据
+  const daily_activity = {};
+  if(dailyRes.results) dailyRes.results.forEach(row => daily_activity[row.day] = row.count);
 
   const data = {
     total_records: stats.total_records || 0,
@@ -312,15 +313,40 @@ async function getStatistics(req, env, user, ctx) {
     avg_satisfaction: parseFloat((stats.avg_satisfaction || 0).toFixed(1)),
     avg_duration: Math.round(stats.avg_duration || 0),
     records_by_month,
-    hour_distribution // 新增字段
+    hour_distribution,
+    daily_activity // 返回给前端
   };
 
-  // 3. 写入缓存 (设置 TTL 为 60秒，避免频繁聚合查询)
   response = jsonResponse(data);
   response.headers.set('Cache-Control', 'public, max-age=60');
   ctx.waitUntil(cache.put(cacheKey, response.clone()));
-
   return response;
+}
+// [新增] 智能搜索建议
+async function getSearchSuggestions(url, env, user) {
+    const q = (url.searchParams.get('q') || '').trim();
+    if (q.length < 1) return jsonResponse([]);
+
+    // 使用 FTS5 前缀查询获取匹配项，限制返回 5 条
+    // 这里我们查询虚拟表，获取包含关键词的记录，并尝试提取上下文（简化版：只返回匹配的完整记录内容摘要）
+    // 为了性能，这里我们也可以选择只查询 distinct location/mood 等，但 FTS 更强大
+    const sql = `
+        SELECT snippet(records_fts, 0, '<b>', '</b>', '...', 5) as match_text
+        FROM records_fts 
+        WHERE uid = ? AND records_fts MATCH ? 
+        LIMIT 5
+    `;
+    // 构造前缀查询 "keyword*"
+    const searchTerms = `"${q}"*`; 
+    
+    try {
+        const { results } = await env.DB.prepare(sql).bind(user.uid, searchTerms).all();
+        // 提取纯文本建议 (简化处理，实际可以更复杂)
+        const suggestions = results.map(r => r.match_text.replace(/<[^>]+>/g, ''));
+        return jsonResponse(suggestions);
+    } catch (e) {
+        return jsonResponse([]);
+    }
 }
 async function getLeaderboard(env) {
     const { results } = await env.DB.prepare(`SELECT u.username, count(r.id) as total_records, sum(r.duration) as total_duration FROM records r JOIN users u ON r.uid = u.uid GROUP BY u.uid ORDER BY total_duration DESC LIMIT 50`).all();
@@ -475,7 +501,7 @@ function jsonResponse(data, status = 200) { return new Response(JSON.stringify(d
 function errorResponse(msg, status = 400) { return jsonResponse({ error: msg }, status); }
 
 // ==========================================
-// 前端 HTML
+// 前端 HTML 生成函数
 // ==========================================
 async function serveFrontend() {
   const html = `
@@ -500,7 +526,7 @@ async function serveFrontend() {
     
     .ambient-bg { position: fixed; top: 0; left: 0; width: 100%; height: 100%; z-index: -2; background: radial-gradient(circle at 10% 20%, #1a0b2e 0%, transparent 40%), radial-gradient(circle at 90% 80%, #2e0b1f 0%, transparent 40%), linear-gradient(to bottom, #0a0a0a, #050505); will-change: transform; }
     
-    /* 核心组件优化 */
+    /* 核心组件 */
     .glass { background: var(--glass-surface); backdrop-filter: blur(15px); -webkit-backdrop-filter: blur(15px); border: 1px solid var(--glass-border); box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4); }
     .card { border-radius: 16px; padding: 20px; margin-bottom: 15px; position: relative; overflow: hidden; transition: transform 0.2s; }
     .btn { background: linear-gradient(135deg, var(--primary), var(--secondary)); color: white; border: none; border-radius: 12px; padding: 12px; font-weight: 600; width: 100%; cursor: pointer; transition: 0.2s; box-shadow: 0 4px 15px rgba(217, 70, 239, 0.3); }
@@ -519,44 +545,72 @@ async function serveFrontend() {
         will-change: opacity, transform;
     }
     .view-section.active { display: block; opacity: 1; transform: translateY(0); }
-
-    #listContainer {
-        position: relative;
-    }
-    /* [新增] 虚拟滚动占位层 */
-    .virtual-spacer {
-        width: 100%;
-        position: absolute;
-        top: 0;
-        left: 0;
-        z-index: -1;
-    }
-    .record-card { 
-        height: 90px; /* 固定高度以便计算 */
-        box-sizing: border-box;
-        overflow: hidden;
-        content-visibility: auto; contain-intrinsic-size: 80px;
-        display: flex; align-items: center; padding: 16px; border-radius: 16px; 
-        background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.05); 
-        margin-bottom: 10px; transition: transform 0.15s; cursor: pointer; 
-    }
-    .record-card:active { transform: scale(0.98); background: rgba(255,255,255,0.06); }
     
-    /* 搜索栏优化 */
-    .search-wrapper { position: relative; flex: 1; }
+    /* 列表与虚拟滚动 */
+    #listContainer { position: relative; }
+    .virtual-spacer { width: 100%; position: absolute; top: 0; left: 0; z-index: -1; }
+    
+    /* 卡片与手势操作 */
+    .record-card { 
+        height: 90px; box-sizing: border-box; overflow: hidden;
+        border-radius: 16px; background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.05); 
+        margin-bottom: 10px; position: absolute; width: 100%; left: 0;
+        touch-action: pan-y; /* 允许垂直滚动，拦截水平手势 */
+    }
+    .record-card-content {
+        position: relative; z-index: 2; width: 100%; height: 100%;
+        display: flex; align-items: center; padding: 16px;
+        background: #151518; /* 必须有背景色遮挡底层按钮 */
+        transition: transform 0.25s cubic-bezier(0.18, 0.89, 0.32, 1.28);
+    }
+    .record-card-actions {
+        position: absolute; top: 0; right: 0; bottom: 0; width: 80px; z-index: 1;
+        display: flex; align-items: center; justify-content: center;
+    }
+    .btn-swipe-del {
+        width: 100%; height: 100%; border: none; background: #ef4444; color: #fff;
+        display: flex; align-items: center; justify-content: center; cursor: pointer;
+    }
+    /* 激活状态：左滑 */
+    .record-card.swiped .record-card-content { transform: translateX(-80px); }
+    
+    /* 搜索栏与建议 */
+    .search-wrapper { position: relative; flex: 1; z-index: 50; }
     .search-input { width: 100%; background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.1); color: #fff; padding: 10px 35px 10px 15px; border-radius: 20px; font-size: 0.9rem; transition: 0.3s; }
     .search-input:focus { background: rgba(255,255,255,0.1); border-color: var(--primary); }
     .search-clear { position: absolute; right: 10px; top: 50%; transform: translateY(-50%); width: 20px; height: 20px; background: rgba(255,255,255,0.2); border-radius: 50%; color: #000; display: flex; align-items: center; justify-content: center; font-size: 12px; cursor: pointer; opacity: 0; visibility: hidden; transition: 0.2s; }
     .search-wrapper.has-text .search-clear { opacity: 1; visibility: visible; }
+    
+    .suggestions-box { 
+        position: absolute; top: 100%; left: 0; width: 100%; 
+        background: #1a1a1a; border: 1px solid #333; border-radius: 12px; 
+        margin-top: 5px; max-height: 200px; overflow-y: auto; 
+        display: none; box-shadow: 0 10px 30px rgba(0,0,0,0.8); 
+    }
+    .suggestions-box.show { display: block; }
+    .suggestion-item { padding: 12px 15px; color: #ccc; font-size: 0.9rem; border-bottom: 1px solid #222; cursor: pointer; transition: 0.2s; }
+    .suggestion-item:last-child { border-bottom: none; }
+    .suggestion-item:hover { background: rgba(255,255,255,0.05); color: var(--primary); }
 
-    /* 安全设置抽屉 */
+    /* 热力图 */
+    .heatmap-container { display: flex; flex-direction: column; gap: 4px; overflow-x: auto; padding-bottom: 10px; scrollbar-width: none; }
+    .heatmap-container::-webkit-scrollbar { display: none; }
+    .heatmap-grid { display: grid; grid-template-rows: repeat(7, 10px); grid-auto-flow: column; gap: 3px; }
+    .heatmap-cell { width: 10px; height: 10px; border-radius: 2px; background: rgba(255,255,255,0.05); transition: 0.2s; }
+    .heatmap-cell:hover { transform: scale(1.5); z-index: 10; border: 1px solid #fff; }
+    .heatmap-cell[data-level="1"] { background: rgba(217, 70, 239, 0.3); }
+    .heatmap-cell[data-level="2"] { background: rgba(217, 70, 239, 0.5); }
+    .heatmap-cell[data-level="3"] { background: rgba(217, 70, 239, 0.8); }
+    .heatmap-cell[data-level="4"] { background: #d946ef; box-shadow: 0 0 5px var(--primary); }
+
+    /* 抽屉与表单 */
     .drawer-header { display: flex; justify-content: space-between; align-items: center; cursor: pointer; padding: 5px 0; }
     .drawer-arrow { font-size: 0.8rem; color: #666; transition: transform 0.3s ease; }
     .drawer-content { max-height: 0; overflow: hidden; transition: max-height 0.4s cubic-bezier(0.4, 0, 0.2, 1); border-top: 1px solid transparent; }
     .drawer-open .drawer-arrow { transform: rotate(180deg); color: var(--primary); }
     .drawer-open .drawer-content { border-top-color: rgba(255,255,255,0.05); padding-top: 20px; margin-top: 15px; }
 
-    /* 图表与通用 */
+    /* 图表 */
     .charts-wrapper { display: flex; flex-direction: row; gap: 15px; height: 220px; padding: 15px; }
     .chart-box-main { flex: 2; position: relative; min-width: 0; display: flex; align-items: center; }
     .chart-box-side { flex: 1; position: relative; max-width: 180px; display: flex; align-items: center; justify-content: center; }
@@ -667,20 +721,30 @@ async function serveFrontend() {
          <div class="stat-box"><div class="stat-val" id="sScore">0</div><div class="stat-label">满意度</div></div>
          <div class="stat-box"><div class="stat-val" id="sOrgasm" style="color:var(--primary);">0</div><div class="stat-label">总高潮</div></div>
        </div>
+
+       <!-- 热力图 -->
+       <div class="glass card" style="padding:15px; overflow-x:hidden;">
+            <div style="font-size:0.8rem; color:#aaa; margin-bottom:10px;">年度活跃热力 (Activity Heatmap)</div>
+            <div class="heatmap-container">
+                <div class="heatmap-grid" id="heatmapGrid"></div>
+            </div>
+       </div>
+
        <div class="glass card charts-wrapper">
           <div class="chart-box-main"><canvas id="chartHistory"></canvas></div>
           <div class="chart-box-side"><canvas id="chartType"></canvas></div>
        </div>
-       <!-- [新增] 时段分布图表 -->
+       <!-- 时段分布图表 -->
        <div class="glass card" style="height: 180px; padding: 10px; margin-bottom: 15px;">
             <canvas id="chartHours"></canvas>
        </div>
        
-       <!-- 优化搜索栏 -->
+       <!-- 搜索栏 -->
        <div style="display:flex; gap:10px; margin-bottom:15px;">
           <div class="search-wrapper" id="searchWrapper">
-             <input type="text" class="search-input" id="searchInput" placeholder="搜索心情、地点、类型...">
+             <input type="text" class="search-input" id="searchInput" placeholder="搜索心情、地点、类型..." autocomplete="off">
              <div class="search-clear" onclick="clearSearch()">✕</div>
+             <div id="searchSuggestions" class="suggestions-box"></div>
           </div>
           <select id="statsRange" style="width:90px; background:#222; border:1px solid rgba(255,255,255,0.1); color:#fff; border-radius:20px; padding:0 10px;" onchange="loadStats(this.value)">
              <option value="all">全部</option><option value="month">本月</option><option value="3_months">近3月</option><option value="year">今年</option>
@@ -878,7 +942,7 @@ async function serveFrontend() {
           </div>
           <div class="about-content">
               <div class="about-logo">Secret Garden</div>
-              <div class="about-ver">v7.7 Search & Drawer</div>
+              <div class="about-ver">v7.8 Heatmap & Gestures</div>
               <p style="color:#aaa; font-size:0.9rem; line-height:1.6;">
                   这里是你的私密花园，记录每一次真实的感受。<br>
                   数据存储于云端，仅你可见。<br>
@@ -896,7 +960,9 @@ async function serveFrontend() {
     let allRecords = []; // 存储所有已拉取的数据
     let virtualConfig = { itemHeight: 100, buffer: 5 }; // 卡片高度 + 边距
     let scrollTicking = false;
-    let chart3; // 新增全局变量
+    let chart1, chart2, chart3; 
+    let timerInterval = null;
+    
     const API = '/api';
     const TR_MAP = ${JSON.stringify(TR_MAP)};
     function tr(k) { return TR_MAP[k] || k; }
@@ -917,8 +983,6 @@ async function serveFrontend() {
     
     let currentPage = 1, isLoading = false, hasMore = true;
     let historyPage = 1, historyLoading = false, historyHasMore = true;
-    let chart1, chart2;
-    let timerInterval = null;
 
     (function() {
       if(token) {
@@ -934,20 +998,6 @@ async function serveFrontend() {
         loadStats();
         setupInfiniteScroll();
         checkTimerState();
-        
-        // 搜索交互逻辑
-        const searchInput = document.getElementById('searchInput');
-        const searchWrapper = document.getElementById('searchWrapper');
-        let t; 
-        searchInput.addEventListener('input', (e)=>{ 
-            // 控制清除按钮显示
-            if(e.target.value.length > 0) searchWrapper.classList.add('has-text');
-            else searchWrapper.classList.remove('has-text');
-            
-            // 防抖搜索
-            clearTimeout(t); 
-            t=setTimeout(()=>{resetList();loadRecords();},500); 
-        });
         
         if(adminPass) {
              document.getElementById('adminPassInput').value = adminPass;
@@ -993,22 +1043,10 @@ async function serveFrontend() {
             toggleAvatarInput();
         }
     }
-    // 关于弹窗逻辑
     function openAbout() { document.getElementById('aboutOverlay').style.display = 'flex'; setTimeout(()=>document.getElementById('aboutOverlay').classList.add('show'),10); }
     function closeAbout() { document.getElementById('aboutOverlay').classList.remove('show'); setTimeout(()=>document.getElementById('aboutOverlay').style.display='none',300); }
-    
-    // 搜索清除逻辑
-    function clearSearch() {
-        const inp = document.getElementById('searchInput');
-        inp.value = '';
-        document.getElementById('searchWrapper').classList.remove('has-text');
-        resetList(); loadRecords();
-    }
-    
-    // 抽屉逻辑
     function toggleDrawer() {
         document.getElementById('securityDrawer').classList.toggle('drawer-open');
-        // 动态设置高度以触发动画
         const content = document.querySelector('#securityDrawer .drawer-content');
         if (document.getElementById('securityDrawer').classList.contains('drawer-open')) {
             content.style.maxHeight = content.scrollHeight + "px";
@@ -1017,7 +1055,255 @@ async function serveFrontend() {
         }
     }
 
-    // --- Admin Logic ---
+    // --- Search Logic (Autocomplete) ---
+    const searchInput = document.getElementById('searchInput');
+    const suggestBox = document.getElementById('searchSuggestions');
+    let searchDebounce;
+
+    searchInput.addEventListener('input', (e) => {
+        const val = e.target.value.trim();
+        if(val.length > 0) document.getElementById('searchWrapper').classList.add('has-text');
+        else document.getElementById('searchWrapper').classList.remove('has-text');
+
+        clearTimeout(searchDebounce);
+        
+        if(val.length === 0) {
+            suggestBox.classList.remove('show');
+            resetList(); loadRecords(); 
+            return;
+        }
+
+        // 防抖搜索
+        searchDebounce = setTimeout(async () => {
+            resetList(); loadRecords(); // 触发主列表搜索
+            
+            try {
+                // 获取建议
+                const r = await fetch(\`\${API}/search/suggest?q=\${encodeURIComponent(val)}\`, { headers: getHeaders() });
+                const list = await r.json();
+                if(list.length > 0) {
+                    suggestBox.innerHTML = list.map(t => \`<div class="suggestion-item" onclick="applySearch('\${esc(t)}')">\${esc(t)}</div>\`).join('');
+                    suggestBox.classList.add('show');
+                } else {
+                    suggestBox.classList.remove('show');
+                }
+            } catch(e) {}
+        }, 300);
+    });
+
+    window.applySearch = function(text) {
+        searchInput.value = text;
+        suggestBox.classList.remove('show');
+        resetList(); loadRecords();
+    };
+
+    function clearSearch() {
+        searchInput.value = '';
+        document.getElementById('searchWrapper').classList.remove('has-text');
+        suggestBox.classList.remove('show');
+        resetList(); loadRecords();
+    }
+    // 点击外部关闭建议
+    document.addEventListener('click', (e) => {
+        if(!document.getElementById('searchWrapper').contains(e.target)) suggestBox.classList.remove('show');
+    });
+
+    // --- Stats & Charts ---
+    async function loadStats(range='all') {
+        const r = await fetch(API+'/statistics?range='+range, { headers: getHeaders() });
+        const s = await r.json();
+        if(s.error === 'Unauthorized') return logout();
+        
+        document.getElementById('sTotal').innerText = s.total_records;
+        document.getElementById('sDuration').innerText = Math.round(s.avg_duration);
+        document.getElementById('sScore').innerText = s.avg_satisfaction;
+        document.getElementById('sOrgasm').innerText = s.total_orgasms;
+        
+        // Render Heatmap
+        renderHeatmap(s.daily_activity || {});
+
+        // Charts
+        Chart.defaults.color = '#666'; Chart.defaults.responsive = true; Chart.defaults.maintainAspectRatio = false;
+        if(chart1) chart1.destroy(); if(chart2) chart2.destroy(); if(chart3) chart3.destroy();
+        
+        const ctx1 = document.getElementById('chartType').getContext('2d');
+        chart1 = new Chart(ctx1, { type: 'doughnut', data: { labels: ['自慰','性爱'], datasets: [{ data: [s.masturbation, s.intercourse], backgroundColor: ['#d946ef', '#f43f5e'], borderWidth: 0 }] }, options: { maintainAspectRatio:false, cutout: '75%', plugins: { legend: { display: false } } } });
+        
+        const ctx2 = document.getElementById('chartHistory').getContext('2d');
+        const labels = Object.keys(s.records_by_month).sort();
+        chart2 = new Chart(ctx2, { type: 'bar', data: { labels: labels.map(l=>l.slice(5)), datasets: [{ label: '次', data: labels.map(k => s.records_by_month[k]), backgroundColor: '#8b5cf6', borderRadius: 4 }] }, options: { maintainAspectRatio:false, scales: { x: { grid: {display:false} }, y: { display:false } }, plugins: { legend: {display:false} } } });
+        
+        const ctx3 = document.getElementById('chartHours').getContext('2d');
+        const gradient = ctx3.createLinearGradient(0, 0, 0, 200);
+        gradient.addColorStop(0, 'rgba(217, 70, 239, 0.5)');
+        gradient.addColorStop(1, 'rgba(217, 70, 239, 0)');
+
+        chart3 = new Chart(ctx3, {
+            type: 'line',
+            data: {
+                labels: Array.from({length:24}, (_,i)=>i),
+                datasets: [{ label: '活跃时段', data: s.hour_distribution, borderColor: '#d946ef', backgroundColor: gradient, fill: true, tension: 0.4, pointRadius: 2 }]
+            },
+            options: {
+                maintainAspectRatio: false,
+                plugins: { legend: { display: false }, tooltip: { mode: 'index', intersect: false } },
+                scales: { x: { grid: { display: false, color:'#333' }, ticks: { color: '#666', maxTicksLimit: 8 } }, y: { display: false } }
+            }
+        });
+
+        if(currentPage===1) loadRecords();
+    }
+
+    function renderHeatmap(data) {
+        const container = document.getElementById('heatmapGrid');
+        container.innerHTML = '';
+        const today = new Date();
+        const startDate = new Date();
+        startDate.setDate(today.getDate() - 364); // 过去一年
+        
+        for(let i=0; i<365; i++) {
+            const d = new Date(startDate);
+            d.setDate(startDate.getDate() + i);
+            const dateStr = d.toISOString().split('T')[0];
+            const count = data[dateStr] || 0;
+            let level = 0;
+            if(count > 0) level = 1;
+            if(count > 2) level = 2;
+            if(count > 4) level = 3;
+            if(count > 6) level = 4;
+            
+            const cell = document.createElement('div');
+            cell.className = 'heatmap-cell';
+            cell.dataset.level = level;
+            cell.title = \`\${dateStr}: \${count}次\`;
+            container.appendChild(cell);
+        }
+    }
+
+    // --- Virtual Scroll List ---
+    function resetList() { currentPage=1; hasMore=true; allRecords = []; }
+    async function loadRecords() {
+        if(isLoading || !hasMore) return; 
+        isLoading = true;
+        const q = document.getElementById('searchInput').value;
+        if(currentPage === 1) {
+            allRecords = [];
+            document.getElementById('listContainer').innerHTML = '<div class="virtual-spacer" id="vSpacer"></div>';
+            window.scrollTo(0, 0);
+        }
+        const r = await fetch(\`\${API}/records?page=\${currentPage}&search=\${q}\`, { headers: getHeaders() });
+        const d = await r.json();
+
+        if(d.records.length === 0) { 
+            hasMore = false; 
+            document.getElementById('scrollSentinel').innerText = '—— 到底了 ——'; 
+        } else { 
+            const processed = d.records.map(item => {
+                const isM = item.activity_type === 'masturbation';
+                const dateObj = new Date(item.datetime);
+                return {
+                    ...item,
+                    isM,
+                    dateStr: \`\${dateObj.getMonth()+1}/\${dateObj.getDate()} \${dateObj.getHours()}:\${dateObj.getMinutes().toString().padStart(2,'0')}\`,
+                    locStr: esc(tr(item.location||'unknown')),
+                    tags: [item.mood ? tr(item.mood) : null, isM && item.stimulation ? tr(item.stimulation) : null].filter(Boolean)
+                };
+            });
+            allRecords = [...allRecords, ...processed];
+            currentPage++;
+            updateVirtualSpacer();
+            renderVirtualList();
+        }
+        isLoading = false;
+    }
+    function updateVirtualSpacer() {
+        const spacer = document.getElementById('vSpacer');
+        if(spacer) spacer.style.height = (allRecords.length * virtualConfig.itemHeight) + 'px';
+    }
+    function renderVirtualList() {
+        if (!document.getElementById('view-home').classList.contains('active')) return;
+        const container = document.getElementById('listContainer');
+        const scrollTop = window.scrollY;
+        const viewportHeight = window.innerHeight;
+        const startIndex = Math.max(0, Math.floor(scrollTop / virtualConfig.itemHeight) - virtualConfig.buffer);
+        const endIndex = Math.min(allRecords.length, Math.ceil((scrollTop + viewportHeight) / virtualConfig.itemHeight) + virtualConfig.buffer);
+        
+        const existingNodes = new Map();
+        container.querySelectorAll('.record-card').forEach(node => existingNodes.set(parseInt(node.dataset.index), node));
+        
+        existingNodes.forEach((node, idx) => { if (idx < startIndex || idx >= endIndex) node.remove(); });
+
+        for (let i = startIndex; i < endIndex; i++) {
+            if (!existingNodes.has(i)) {
+                const item = allRecords[i];
+                if (!item) continue;
+                
+                const div = document.createElement('div');
+                div.className = \`record-card \${item.isM?'type-m':'type-i'}\`;
+                div.dataset.index = i;
+                div.style.top = (i * virtualConfig.itemHeight) + 'px';
+                
+                // Swipe Logic
+                let startX = 0, currentX = 0;
+                div.addEventListener('touchstart', (e) => {
+                    startX = e.touches[0].clientX;
+                    // Close others
+                    document.querySelectorAll('.record-card.swiped').forEach(el => { if(el!==div) el.classList.remove('swiped'); });
+                }, {passive: true});
+                div.addEventListener('touchmove', (e) => { currentX = e.touches[0].clientX; }, {passive: true});
+                div.addEventListener('touchend', (e) => {
+                    const diff = startX - currentX;
+                    if (diff > 50) div.classList.add('swiped'); // Left swipe
+                    else if (diff < -50) div.classList.remove('swiped'); // Right swipe
+                    
+                    if (Math.abs(diff) < 10) { // Click
+                        if(!e.target.closest('.btn-swipe-del')) editRecord(esc(item.id));
+                    }
+                });
+
+                div.innerHTML = \`
+                    <div class="record-card-content">
+                        <div class="record-icon">\${item.isM ? '🖐' : '❤️'}</div>
+                        <div style="flex:1;">
+                            <div style="display:flex; justify-content:space-between; color:#eee; font-weight:600; margin-bottom:4px;">
+                                <span>\${item.locStr}</span>
+                                <span style="color:\${item.isM?'var(--primary)':'var(--accent)'}">\${item.duration}分</span>
+                            </div>
+                            <div style="font-size:0.8rem; color:#888;">\${item.dateStr} · \${item.satisfaction}/10</div>
+                            <div style="margin-top:6px; display:flex; gap:6px; flex-wrap:wrap;">
+                                \${item.tags.map(t=>\`<span style="background:rgba(255,255,255,0.1); padding:2px 6px; border-radius:4px; font-size:0.7rem;">\${esc(t)}</span>\`).join('')}
+                            </div>
+                        </div>
+                    </div>
+                    <div class="record-card-actions">
+                        <button class="btn-swipe-del" onclick="quickDelete('\${esc(item.id)}', this)">
+                           <svg viewBox="0 0 24 24" width="24" height="24" stroke="currentColor" stroke-width="2" fill="none"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path></svg>
+                        </button>
+                    </div>\`;
+                container.appendChild(div);
+            }
+        }
+    }
+    window.addEventListener('scroll', () => {
+        if (!scrollTicking) {
+            window.requestAnimationFrame(() => { renderVirtualList(); scrollTicking = false; });
+            scrollTicking = true;
+        }
+    });
+
+    async function quickDelete(id, btnEl) {
+        if(!confirm('确定删除?')) return;
+        const card = btnEl.closest('.record-card');
+        card.style.height = '0'; card.style.margin = '0'; card.style.border = 'none';
+        
+        const r = await fetch(API+'/records?id='+id, { method:'DELETE', headers: getHeaders() });
+        const d = await r.json();
+        if(d.message) {
+            setTimeout(() => { resetList(); loadRecords(); loadStats(); }, 300);
+        } else alert('Error');
+    }
+
+    // --- Admin & History ---
     async function verifyAdmin() {
         const p = document.getElementById('adminPassInput').value;
         adminPass = p; 
@@ -1028,8 +1314,7 @@ async function serveFrontend() {
             document.getElementById('adminContent').classList.remove('hidden');
             loadAdminData();
         } else {
-            alert('验证失败: 密码错误或网络异常');
-            adminPass = null;
+            alert('验证失败'); adminPass = null;
         }
     }
     async function loadAdminData() {
@@ -1047,200 +1332,18 @@ async function serveFrontend() {
         });
     }
     async function deleteUser(uid) {
-        if(!confirm('危险操作：确定要删除该用户及其所有记录吗？')) return;
+        if(!confirm('Dangerous! Delete user?')) return;
         const r = await fetch(API+'/admin/users?uid='+uid, { method:'DELETE', headers: getHeaders() });
-        if(r.status===200) loadAdminData(); else alert('Error');
+        if(r.status===200) loadAdminData();
     }
 
-    // --- Stats & Home List ---
-    async function loadStats(range='all') {
-        const r = await fetch(API+'/statistics?range='+range, { headers: getHeaders() });
-        const s = await r.json();
-        if(s.error === 'Unauthorized') return logout();
-        document.getElementById('sTotal').innerText = s.total_records;
-        document.getElementById('sDuration').innerText = Math.round(s.avg_duration);
-        document.getElementById('sScore').innerText = s.avg_satisfaction;
-        document.getElementById('sOrgasm').innerText = s.total_orgasms;
-        
-        Chart.defaults.color = '#666'; Chart.defaults.responsive = true; Chart.defaults.maintainAspectRatio = false;
-        if(chart1) chart1.destroy(); if(chart2) chart2.destroy();
-        
-        const ctx1 = document.getElementById('chartType').getContext('2d');
-        chart1 = new Chart(ctx1, { type: 'doughnut', data: { labels: ['自慰','性爱'], datasets: [{ data: [s.masturbation, s.intercourse], backgroundColor: ['#d946ef', '#f43f5e'], borderWidth: 0 }] }, options: { maintainAspectRatio:false, cutout: '75%', plugins: { legend: { display: false } } } });
-        
-        const ctx2 = document.getElementById('chartHistory').getContext('2d');
-        const labels = Object.keys(s.records_by_month).sort();
-        chart2 = new Chart(ctx2, { type: 'bar', data: { labels: labels.map(l=>l.slice(5)), datasets: [{ label: '次', data: labels.map(k => s.records_by_month[k]), backgroundColor: '#8b5cf6', borderRadius: 4 }] }, options: { maintainAspectRatio:false, scales: { x: { grid: {display:false} }, y: { display:false } }, plugins: { legend: {display:false} } } });
-        
-        // [新增] 24小时分布图 (折线图或雷达图，这里用平滑折线图)
-        const ctx3 = document.getElementById('chartHours').getContext('2d');
-        const gradient = ctx3.createLinearGradient(0, 0, 0, 200);
-        gradient.addColorStop(0, 'rgba(217, 70, 239, 0.5)'); // primary color low opacity
-        gradient.addColorStop(1, 'rgba(217, 70, 239, 0)');
-
-        chart3 = new Chart(ctx3, {
-            type: 'line',
-            data: {
-                labels: Array.from({length:24}, (_,i)=>i), // 0, 1, ..., 23
-                datasets: [{
-                    label: '活跃时段',
-                    data: s.hour_distribution, // 后端返回的新数据
-                    borderColor: '#d946ef',
-                    backgroundColor: gradient,
-                    fill: true,
-                    tension: 0.4, // 平滑曲线
-                    pointRadius: 2
-                }]
-            },
-            options: {
-                maintainAspectRatio: false,
-                plugins: { legend: { display: false }, tooltip: { mode: 'index', intersect: false } },
-                scales: {
-                    x: { grid: { display: false, color:'#333' }, ticks: { color: '#666', maxTicksLimit: 8 } },
-                    y: { display: false }
-                }
-            }
-        });
-
-        if(currentPage===1) loadRecords();
-    }
-    function resetList() { currentPage=1; hasMore=true; allRecords = []; }
-    // [重写] 获取数据 (仅追加数据到内存，不直接渲染 DOM)
-    async function loadRecords() {
-        if(isLoading || !hasMore) return; 
-        isLoading = true;
-        const q = document.getElementById('searchInput').value;
-
-        // 如果是第一页，清空缓存数组
-        if(currentPage === 1) {
-            allRecords = [];
-            document.getElementById('listContainer').innerHTML = '<div class="virtual-spacer" id="vSpacer"></div>';
-            window.scrollTo(0, 0);
-        }
-
-        const r = await fetch(\`\${API}/records?page=\${currentPage}&search=\${q}\`, { headers: getHeaders() });
-        const d = await r.json();
-
-        if(d.records.length === 0) { 
-            hasMore = false; 
-            document.getElementById('scrollSentinel').innerText = '—— 到底了 ——'; 
-        } else { 
-            // 数据预处理：格式化日期等，避免渲染时重复计算
-            const processed = d.records.map(item => {
-                const isM = item.activity_type === 'masturbation';
-                const dateObj = new Date(item.datetime);
-                return {
-                    ...item,
-                    isM,
-                    dateStr: \`\${dateObj.getMonth()+1}/\${dateObj.getDate()} \${dateObj.getHours()}:\${dateObj.getMinutes().toString().padStart(2,'0')}\`,
-                    locStr: esc(tr(item.location||'unknown')),
-                    tags: [
-                        item.mood ? tr(item.mood) : null,
-                        isM && item.stimulation ? tr(item.stimulation) : null
-                    ].filter(Boolean)
-                };
-            });
-
-            allRecords = [...allRecords, ...processed];
-            currentPage++;
-
-            // 更新占位高度
-            updateVirtualSpacer();
-            // 触发渲染
-            renderVirtualList();
-        }
-        isLoading = false;
-    }
-
-    // [新增] 更新虚拟滚动占位高度
-    function updateVirtualSpacer() {
-        const spacer = document.getElementById('vSpacer');
-        if(spacer) spacer.style.height = (allRecords.length * virtualConfig.itemHeight) + 'px';
-    }
-
-    // [新增] 虚拟渲染核心函数
-    function renderVirtualList() {
-        if (!document.getElementById('view-home').classList.contains('active')) return;
-
-        const container = document.getElementById('listContainer');
-        const scrollTop = window.scrollY;
-        const viewportHeight = window.innerHeight;
-
-        // 计算可视范围索引
-        const startIndex = Math.max(0, Math.floor(scrollTop / virtualConfig.itemHeight) - virtualConfig.buffer);
-        const endIndex = Math.min(allRecords.length, Math.ceil((scrollTop + viewportHeight) / virtualConfig.itemHeight) + virtualConfig.buffer);
-
-        // 获取当前 DOM 中已有的 item
-        const existingNodes = new Map();
-        container.querySelectorAll('.record-card').forEach(node => {
-            existingNodes.set(parseInt(node.dataset.index), node);
-        });
-
-        // 1. 移除滑出视野的节点
-        existingNodes.forEach((node, idx) => {
-            if (idx < startIndex || idx >= endIndex) {
-                node.remove();
-            }
-        });
-
-        // 2. 添加进入视野的节点
-        for (let i = startIndex; i < endIndex; i++) {
-            if (!existingNodes.has(i)) {
-                const item = allRecords[i];
-                if (!item) continue;
-
-                const div = document.createElement('div');
-                // 绝对定位或 translateY 偏移
-                div.style.position = 'absolute';
-                div.style.top = (i * virtualConfig.itemHeight) + 'px';
-                div.style.width = '100%';
-                div.style.left = '0';
-
-                div.className = \`record-card \${item.isM?'type-m':'type-i'}\`;
-                div.dataset.index = i;
-                div.onclick = () => editRecord(esc(item.id));
-
-                div.innerHTML = \`
-                    <div class="record-icon">\${item.isM ? '🖐' : '❤️'}</div>
-                    <div style="flex:1;">
-                        <div style="display:flex; justify-content:space-between; color:#eee; font-weight:600; margin-bottom:4px;">
-                            <span>\${item.locStr}</span>
-                            <span style="color:\${item.isM?'var(--primary)':'var(--accent)'}">\${item.duration}分</span>
-                        </div>
-                        <div style="font-size:0.8rem; color:#888;">\${item.dateStr} · \${item.satisfaction}/10</div>
-                        <div style="margin-top:6px; display:flex; gap:6px; flex-wrap:wrap;">
-                            \${item.tags.map(t=>\`<span style="background:rgba(255,255,255,0.1); padding:2px 6px; border-radius:4px; font-size:0.7rem;">\${esc(t)}</span>\`).join('')}
-                        </div>
-                    </div>\`;
-                container.appendChild(div);
-            }
-        }
-    }
-
-    // [修改] 监听滚动事件
-    window.addEventListener('scroll', () => {
-        if (!scrollTicking) {
-            window.requestAnimationFrame(() => {
-                renderVirtualList();
-                scrollTicking = false;
-            });
-            scrollTicking = true;
-        }
-    });    
-
-    // --- History Logic ---
     async function loadHistory() {
-        // 确保这些变量在外部作用域已定义
-        if (typeof historyLoading !== 'undefined' && historyLoading) return;
-        if (typeof historyHasMore !== 'undefined' && !historyHasMore) return;
-
+        if (historyLoading || !historyHasMore) return;
         historyLoading = true;
-
         try {
             const r = await fetch(\`\${API}/records?page=\${historyPage}\`, { headers: getHeaders()});
             const d = await r.json();
             const c = document.getElementById('timelineContainer');
-
             if (!d.records || d.records.length === 0) { 
                 historyHasMore = false; 
                 document.getElementById('historySentinel').innerText = '一切的开始'; 
@@ -1248,43 +1351,17 @@ async function serveFrontend() {
                 d.records.forEach(item => {
                     const isM = item.activity_type === 'masturbation';
                     const dateObj = new Date(item.datetime);
-
-                    const year = dateObj.getFullYear();
-                    const month = (dateObj.getMonth() + 1).toString().padStart(2, '0');
-                    const day = dateObj.getDate().toString().padStart(2, '0');
-                    const hour = dateObj.getHours().toString().padStart(2, '0');
-                    const minute = dateObj.getMinutes().toString().padStart(2, '0');
-                    const timeStr = \`\${year}-\${month}-\${day} \${hour}:\${minute}\`;
-
+                    const timeStr = \`\${dateObj.getFullYear()}-\${(dateObj.getMonth()+1).toString().padStart(2,'0')}-\${dateObj.getDate().toString().padStart(2,'0')} \${dateObj.getHours().toString().padStart(2,'0')}:\${dateObj.getMinutes().toString().padStart(2,'0')}\`;
                     const safeId = esc(item.id);
                     const safeLocation = esc(tr(item.location || 'unknown'));
-                    const safeDuration = esc(item.duration);
-                    const safeExperience = esc(item.experience || '无备注...');
-
-                    // 注意：这里的 HTML 模板字符串也加了反斜杠转义
-                    const html = \`
-                    <div class="timeline-item">
-                        <div class="timeline-dot" style="border-color:\${isM ? 'var(--primary)' : 'var(--accent)'}"></div>
-                        <div class="timeline-date">\${timeStr}</div>
-                        <div class="timeline-content" onclick="editRecord('\${safeId}')">
-                            <div style="display:flex; justify-content:space-between; margin-bottom:5px;">
-                                <strong style="color:#fff">\${isM ? '独享' : '欢愉'} · \${safeLocation}</strong>
-                                <span>\${safeDuration} 分钟</span>
-                            </div>
-                            <div style="font-size:0.85rem; color:#aaa; white-space: pre-wrap;">\${safeExperience}</div>
-                        </div>
-                    </div>\`;
-
+                    const html = \`<div class="timeline-item"><div class="timeline-dot" style="border-color:\${isM ? 'var(--primary)' : 'var(--accent)'}"></div><div class="timeline-date">\${timeStr}</div><div class="timeline-content" onclick="editRecord('\${safeId}')"><div style="display:flex; justify-content:space-between; margin-bottom:5px;"><strong style="color:#fff">\${isM ? '独享' : '欢愉'} · \${safeLocation}</strong><span>\${item.duration} 分钟</span></div><div style="font-size:0.85rem; color:#aaa; white-space: pre-wrap;">\${esc(item.experience || '无备注...')}</div></div></div>\`;
                     c.insertAdjacentHTML('beforeend', html);
                 });
                 historyPage++;
             }
-        } catch (e) {
-            console.error("History load error", e);
-        } finally {
-            historyLoading = false;
-        }
+        } catch (e) {} finally { historyLoading = false; }
     }
+
     // --- Timer ---
     function checkTimerState() { const start = localStorage.getItem('timerStart'); if(start) { showTimerOverlay(parseInt(start)); } }
     function startTimer() { const now = Date.now(); localStorage.setItem('timerStart', now); showTimerOverlay(now); }
@@ -1308,7 +1385,7 @@ async function serveFrontend() {
         }
     }
 
-    // --- Forms & Modal ---
+    // --- CRUD Forms ---
     function setActType(type) {
         document.getElementById('actType').value = type;
         document.querySelectorAll('.segment-opt').forEach(el => el.classList.toggle('active', el.dataset.val === type));
@@ -1374,26 +1451,22 @@ async function serveFrontend() {
     }
     async function deleteCurrentRecord() {
        const id = document.getElementById('recordId').value;
-       if(!id || !confirm('确定要删除这条记录吗？此操作不可撤销。')) return;
+       if(!id || !confirm('Confirm delete?')) return;
        const r = await fetch(API+'/records?id='+id, { method:'DELETE', headers: getHeaders() });
        const d = await r.json();
-       if(d.error) { alert('删除失败: '+d.error); return; }
-       alert('删除成功');
+       if(d.error) { alert('Error: '+d.error); return; }
        closeModal(); resetList(); loadRecords(); loadStats();
        if(document.getElementById('view-history').classList.contains('active')) {
            historyPage=1; document.getElementById('timelineContainer').innerHTML=''; historyHasMore=true; loadHistory();
        }
     }
-
-    // --- Nav & Transition ---
+    
     function switchView(v, el) {
         document.querySelectorAll('.dock-item').forEach(d => d.classList.remove('active'));
         if(el) el.classList.add('active');
-        const views = document.querySelectorAll('.view-section');
-        views.forEach(view => {
+        document.querySelectorAll('.view-section').forEach(view => {
             if(view.id === 'view-'+v) view.classList.add('active'); else view.classList.remove('active');
         });
-
         if(v==='leaderboard') loadLeaderboard();
         if(v==='history' && document.getElementById('timelineContainer').innerHTML==='') loadHistory();
         if(v==='admin' && adminPass) loadAdminData();
