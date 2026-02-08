@@ -90,8 +90,8 @@ export default {
                 else if (method === 'DELETE') response = await deleteRecord(url, env, user);
               } 
               else if (path === '/api/records/detail') response = await getRecordDetail(url, env, user);
-              else if (path === '/api/statistics') response = await getStatistics(url, env, user);
-              else if (path === '/api/leaderboard') response = await getLeaderboard(env);
+              else if (path === '/api/statistics') response = await getStatistics(request, env, user, ctx);
+              else if (path === '/api/leaderboard') response = await getLeaderboard(env, request, ctx);
               else response = new Response('Not found', { status: 404, headers: CORS_HEADERS });
           }
       }
@@ -254,22 +254,73 @@ async function deleteRecord(url, env, user) {
   await env.DB.prepare('DELETE FROM records WHERE id = ? AND uid = ?').bind(id, user.uid).run();
   return jsonResponse({ message: '删除成功' });
 }
-async function getStatistics(url, env, user) {
+async function getStatistics(req, env, user, ctx) {
+  // 1. 尝试读取缓存 (使用 URL 作为 Key)
+  const cacheUrl = new URL(req.url);
+  const cacheKey = new Request(cacheUrl.toString(), req);
+  const cache = caches.default;
+  let response = await cache.match(cacheKey);
+  if (response) return response;
+
+  // 2. 数据库查询
+  const url = new URL(req.url);
   const range = url.searchParams.get('range') || 'all';
   let timeFilter = '';
   if (range === 'month') timeFilter = " AND datetime >= datetime('now', 'start of month')";
   else if (range === 'year') timeFilter = " AND datetime >= datetime('now', '-1 year')";
   else if (range === '3_months') timeFilter = " AND datetime >= datetime('now', '-3 months')";
-  const sql = `SELECT count(*) as total_records, sum(case when activity_type = 'masturbation' then 1 else 0 end) as masturbation, sum(case when activity_type = 'intercourse' then 1 else 0 end) as intercourse, sum(orgasm_count) as total_orgasms, avg(satisfaction) as avg_satisfaction, avg(duration) as avg_duration FROM records WHERE uid = ? ${timeFilter}`;
-  const stats = await env.DB.prepare(sql).bind(user.uid).first();
+
+  // 基础统计
+  const sqlBase = `SELECT 
+      count(*) as total_records, 
+      sum(case when activity_type = 'masturbation' then 1 else 0 end) as masturbation, 
+      sum(case when activity_type = 'intercourse' then 1 else 0 end) as intercourse, 
+      sum(orgasm_count) as total_orgasms, 
+      avg(satisfaction) as avg_satisfaction, 
+      avg(duration) as avg_duration 
+      FROM records WHERE uid = ? ${timeFilter}`;
+  
+  // 趋势图 (按月)
   const monthSql = `SELECT strftime('%Y-%m', datetime) as month, count(*) as count FROM records WHERE uid = ? ${timeFilter} GROUP BY month ORDER BY month DESC LIMIT 12`;
-  const monthRes = await env.DB.prepare(monthSql).bind(user.uid).all();
+  
+  // [新增] 时段热力分布 (00-23点)
+  const hourSql = `SELECT strftime('%H', datetime) as hour, count(*) as count FROM records WHERE uid = ? ${timeFilter} GROUP BY hour`;
+
+  // 并行查询
+  const [stats, monthRes, hourRes] = await Promise.all([
+      env.DB.prepare(sqlBase).bind(user.uid).first(),
+      env.DB.prepare(monthSql).bind(user.uid).all(),
+      env.DB.prepare(hourSql).bind(user.uid).all()
+  ]);
+
   const records_by_month = {};
   if(monthRes.results) [...monthRes.results].reverse().forEach(row => records_by_month[row.month] = row.count);
-  return jsonResponse({
-    total_records: stats.total_records || 0, masturbation: stats.masturbation || 0, intercourse: stats.intercourse || 0,
-    total_orgasms: stats.total_orgasms || 0, avg_satisfaction: parseFloat((stats.avg_satisfaction || 0).toFixed(1)), avg_duration: Math.round(stats.avg_duration || 0), records_by_month
-  });
+
+  // 处理时段数据 (填补 0-23 的空缺)
+  const hour_distribution = new Array(24).fill(0);
+  if(hourRes.results) {
+      hourRes.results.forEach(row => {
+          hour_distribution[parseInt(row.hour)] = row.count;
+      });
+  }
+
+  const data = {
+    total_records: stats.total_records || 0,
+    masturbation: stats.masturbation || 0,
+    intercourse: stats.intercourse || 0,
+    total_orgasms: stats.total_orgasms || 0,
+    avg_satisfaction: parseFloat((stats.avg_satisfaction || 0).toFixed(1)),
+    avg_duration: Math.round(stats.avg_duration || 0),
+    records_by_month,
+    hour_distribution // 新增字段
+  };
+
+  // 3. 写入缓存 (设置 TTL 为 60秒，避免频繁聚合查询)
+  response = jsonResponse(data);
+  response.headers.set('Cache-Control', 'public, max-age=60');
+  ctx.waitUntil(cache.put(cacheKey, response.clone()));
+
+  return response;
 }
 async function getLeaderboard(env) {
     const { results } = await env.DB.prepare(`SELECT u.username, count(r.id) as total_records, sum(r.duration) as total_duration FROM records r JOIN users u ON r.uid = u.uid GROUP BY u.uid ORDER BY total_duration DESC LIMIT 50`).all();
@@ -468,8 +519,22 @@ async function serveFrontend() {
         will-change: opacity, transform;
     }
     .view-section.active { display: block; opacity: 1; transform: translateY(0); }
-    
+
+    #listContainer {
+        position: relative;
+    }
+    /* [新增] 虚拟滚动占位层 */
+    .virtual-spacer {
+        width: 100%;
+        position: absolute;
+        top: 0;
+        left: 0;
+        z-index: -1;
+    }
     .record-card { 
+        height: 90px; /* 固定高度以便计算 */
+        box-sizing: border-box;
+        overflow: hidden;
         content-visibility: auto; contain-intrinsic-size: 80px;
         display: flex; align-items: center; padding: 16px; border-radius: 16px; 
         background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.05); 
@@ -605,6 +670,10 @@ async function serveFrontend() {
        <div class="glass card charts-wrapper">
           <div class="chart-box-main"><canvas id="chartHistory"></canvas></div>
           <div class="chart-box-side"><canvas id="chartType"></canvas></div>
+       </div>
+       <!-- [新增] 时段分布图表 -->
+       <div class="glass card" style="height: 180px; padding: 10px; margin-bottom: 15px;">
+            <canvas id="chartHours"></canvas>
        </div>
        
        <!-- 优化搜索栏 -->
@@ -824,6 +893,10 @@ async function serveFrontend() {
   </div>
 
   <script>
+    let allRecords = []; // 存储所有已拉取的数据
+    let virtualConfig = { itemHeight: 100, buffer: 5 }; // 卡片高度 + 边距
+    let scrollTicking = false;
+    let chart3; // 新增全局变量
     const API = '/api';
     const TR_MAP = ${JSON.stringify(TR_MAP)};
     function tr(k) { return TR_MAP[k] || k; }
@@ -999,35 +1072,161 @@ async function serveFrontend() {
         const labels = Object.keys(s.records_by_month).sort();
         chart2 = new Chart(ctx2, { type: 'bar', data: { labels: labels.map(l=>l.slice(5)), datasets: [{ label: '次', data: labels.map(k => s.records_by_month[k]), backgroundColor: '#8b5cf6', borderRadius: 4 }] }, options: { maintainAspectRatio:false, scales: { x: { grid: {display:false} }, y: { display:false } }, plugins: { legend: {display:false} } } });
         
+        // [新增] 24小时分布图 (折线图或雷达图，这里用平滑折线图)
+        const ctx3 = document.getElementById('chartHours').getContext('2d');
+        const gradient = ctx3.createLinearGradient(0, 0, 0, 200);
+        gradient.addColorStop(0, 'rgba(217, 70, 239, 0.5)'); // primary color low opacity
+        gradient.addColorStop(1, 'rgba(217, 70, 239, 0)');
+
+        chart3 = new Chart(ctx3, {
+            type: 'line',
+            data: {
+                labels: Array.from({length:24}, (_,i)=>i), // 0, 1, ..., 23
+                datasets: [{
+                    label: '活跃时段',
+                    data: s.hour_distribution, // 后端返回的新数据
+                    borderColor: '#d946ef',
+                    backgroundColor: gradient,
+                    fill: true,
+                    tension: 0.4, // 平滑曲线
+                    pointRadius: 2
+                }]
+            },
+            options: {
+                maintainAspectRatio: false,
+                plugins: { legend: { display: false }, tooltip: { mode: 'index', intersect: false } },
+                scales: {
+                    x: { grid: { display: false, color:'#333' }, ticks: { color: '#666', maxTicksLimit: 8 } },
+                    y: { display: false }
+                }
+            }
+        });
+
         if(currentPage===1) loadRecords();
     }
-    function resetList() { currentPage=1; hasMore=true; document.getElementById('listContainer').innerHTML=''; }
+    function resetList() { currentPage=1; hasMore=true; allRecords = []; }
+    // [重写] 获取数据 (仅追加数据到内存，不直接渲染 DOM)
     async function loadRecords() {
-        if(isLoading || !hasMore) return; isLoading = true;
+        if(isLoading || !hasMore) return; 
+        isLoading = true;
         const q = document.getElementById('searchInput').value;
+
+        // 如果是第一页，清空缓存数组
+        if(currentPage === 1) {
+            allRecords = [];
+            document.getElementById('listContainer').innerHTML = '<div class="virtual-spacer" id="vSpacer"></div>';
+            window.scrollTo(0, 0);
+        }
+
         const r = await fetch(\`\${API}/records?page=\${currentPage}&search=\${q}\`, { headers: getHeaders() });
         const d = await r.json();
-        if(d.records.length === 0) { hasMore=false; document.getElementById('scrollSentinel').innerText = '—— 到底了 ——'; }
-        else { d.records.forEach(renderItem); currentPage++; }
+
+        if(d.records.length === 0) { 
+            hasMore = false; 
+            document.getElementById('scrollSentinel').innerText = '—— 到底了 ——'; 
+        } else { 
+            // 数据预处理：格式化日期等，避免渲染时重复计算
+            const processed = d.records.map(item => {
+                const isM = item.activity_type === 'masturbation';
+                const dateObj = new Date(item.datetime);
+                return {
+                    ...item,
+                    isM,
+                    dateStr: \`\${dateObj.getMonth()+1}/\${dateObj.getDate()} \${dateObj.getHours()}:\${dateObj.getMinutes().toString().padStart(2,'0')}\`,
+                    locStr: esc(tr(item.location||'unknown')),
+                    tags: [
+                        item.mood ? tr(item.mood) : null,
+                        isM && item.stimulation ? tr(item.stimulation) : null
+                    ].filter(Boolean)
+                };
+            });
+
+            allRecords = [...allRecords, ...processed];
+            currentPage++;
+
+            // 更新占位高度
+            updateVirtualSpacer();
+            // 触发渲染
+            renderVirtualList();
+        }
         isLoading = false;
     }
-    function renderItem(item) {
-        const isM = item.activity_type === 'masturbation';
-        const d = new Date(item.datetime);
-        const dateStr = \`\${d.getMonth()+1}/\${d.getDate()} \${d.getHours()}:\${d.getMinutes().toString().padStart(2,'0')}\`;
-        let tags = []; 
-        if(item.mood) tags.push(tr(item.mood)); 
-        if(isM && item.stimulation) tags.push(tr(item.stimulation));
-        
-        // 注意：这里用了 esc() 包裹所有可能包含用户输入的字段
-        const locStr = esc(tr(item.location||'unknown'));
-        const durStr = esc(item.duration);
-        const satStr = esc(item.satisfaction);
-        
-        // HTML 构造
-        const html = \`<div class="record-card \${isM?'type-m':'type-i'}" onclick="editRecord('\${esc(item.id)}')"><div class="record-icon">\${isM ? '🖐' : '❤️'}</div><div style="flex:1;"><div style="display:flex; justify-content:space-between; color:#eee; font-weight:600; margin-bottom:4px;"><span>\${locStr}</span><span style="color:\${isM?'var(--primary)':'var(--accent)'}">\${durStr}分</span></div><div style="font-size:0.8rem; color:#888;">\${dateStr} · \${satStr}/10</div><div style="margin-top:6px; display:flex; gap:6px; flex-wrap:wrap;">\${tags.map(t=>\`<span style="background:rgba(255,255,255,0.1); padding:2px 6px; border-radius:4px; font-size:0.7rem;">\${esc(t)}</span>\`).join('')}</div></div></div>\`;
-        document.getElementById('listContainer').insertAdjacentHTML('beforeend', html);
+
+    // [新增] 更新虚拟滚动占位高度
+    function updateVirtualSpacer() {
+        const spacer = document.getElementById('vSpacer');
+        if(spacer) spacer.style.height = (allRecords.length * virtualConfig.itemHeight) + 'px';
     }
+
+    // [新增] 虚拟渲染核心函数
+    function renderVirtualList() {
+        if (!document.getElementById('view-home').classList.contains('active')) return;
+
+        const container = document.getElementById('listContainer');
+        const scrollTop = window.scrollY;
+        const viewportHeight = window.innerHeight;
+
+        // 计算可视范围索引
+        const startIndex = Math.max(0, Math.floor(scrollTop / virtualConfig.itemHeight) - virtualConfig.buffer);
+        const endIndex = Math.min(allRecords.length, Math.ceil((scrollTop + viewportHeight) / virtualConfig.itemHeight) + virtualConfig.buffer);
+
+        // 获取当前 DOM 中已有的 item
+        const existingNodes = new Map();
+        container.querySelectorAll('.record-card').forEach(node => {
+            existingNodes.set(parseInt(node.dataset.index), node);
+        });
+
+        // 1. 移除滑出视野的节点
+        existingNodes.forEach((node, idx) => {
+            if (idx < startIndex || idx >= endIndex) {
+                node.remove();
+            }
+        });
+
+        // 2. 添加进入视野的节点
+        for (let i = startIndex; i < endIndex; i++) {
+            if (!existingNodes.has(i)) {
+                const item = allRecords[i];
+                if (!item) continue;
+
+                const div = document.createElement('div');
+                // 绝对定位或 translateY 偏移
+                div.style.position = 'absolute';
+                div.style.top = (i * virtualConfig.itemHeight) + 'px';
+                div.style.width = '100%';
+                div.style.left = '0';
+
+                div.className = \`record-card \${item.isM?'type-m':'type-i'}\`;
+                div.dataset.index = i;
+                div.onclick = () => editRecord(esc(item.id));
+
+                div.innerHTML = \`
+                    <div class="record-icon">\${item.isM ? '🖐' : '❤️'}</div>
+                    <div style="flex:1;">
+                        <div style="display:flex; justify-content:space-between; color:#eee; font-weight:600; margin-bottom:4px;">
+                            <span>\${item.locStr}</span>
+                            <span style="color:\${item.isM?'var(--primary)':'var(--accent)'}">\${item.duration}分</span>
+                        </div>
+                        <div style="font-size:0.8rem; color:#888;">\${item.dateStr} · \${item.satisfaction}/10</div>
+                        <div style="margin-top:6px; display:flex; gap:6px; flex-wrap:wrap;">
+                            \${item.tags.map(t=>\`<span style="background:rgba(255,255,255,0.1); padding:2px 6px; border-radius:4px; font-size:0.7rem;">\${esc(t)}</span>\`).join('')}
+                        </div>
+                    </div>\`;
+                container.appendChild(div);
+            }
+        }
+    }
+
+    // [修改] 监听滚动事件
+    window.addEventListener('scroll', () => {
+        if (!scrollTicking) {
+            window.requestAnimationFrame(() => {
+                renderVirtualList();
+                scrollTicking = false;
+            });
+            scrollTicking = true;
+        }
+    });    
 
     // --- History Logic ---
     async function loadHistory() {
