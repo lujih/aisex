@@ -49,18 +49,25 @@ export default {
     try {
       // 4. 路由分发
       
-      // 前端页面
+      // ============================
+      // A. 公开/静态资源
+      // ============================
       if (path === '/' || path === '/index.html') {
           response = await serveFrontend();
       }
       
-      // 管理员接口 (传入 reqId 用于审计)
+      // ============================
+      // B. 管理员接口 (需要特殊 Header 验证)
+      // ============================
       else if (path.startsWith('/api/admin')) {
           log(reqId, 'WARN', `Admin Access Attempt`, { path }); 
+          // handleAdmin 内部会处理 /api/admin/users/reset 等新路由
           response = await handleAdmin(request, env, reqId);
       }
 
-      // 认证接口 (传入 reqId 用于审计)
+      // ============================
+      // C. 公开认证接口
+      // ============================
       else if (path === '/api/auth/register') {
           response = await registerUser(request, env, reqId);
       }
@@ -68,8 +75,11 @@ export default {
           response = await loginUser(request, env, reqId);
       }
 
-      // 用户保护接口
+      // ============================
+      // D. 用户受保护接口 (需要 JWT)
+      // ============================
       else {
+          // 统一鉴权
           const user = await verifyAuth(request, env);
           
           if (!user) {
@@ -82,18 +92,49 @@ export default {
                   log(reqId, 'INFO', `User Action: ${user.username} (${user.uid})`, { method, path });
               }
               
-              if (path === '/api/auth/password') response = await changePassword(request, env, user);
+              // --- 用户路由表 ---
+              
+              // 1. 账户安全
+              if (path === '/api/auth/password') {
+                  response = await changePassword(request, env, user);
+              }
+              
+              // 2. 核心记录 CRUD
               else if (path === '/api/records') {
                 if (method === 'GET') response = await getRecords(request, env, user);
                 else if (method === 'POST') response = await createRecord(request, env, user);
                 else if (method === 'PUT') response = await updateRecord(request, env, user);
-                else if (method === 'DELETE') response = await deleteRecord(url, env, user);
+                else if (method === 'DELETE') response = await deleteRecord(url, env, user); // 单条删除
               } 
-              else if (path === '/api/records/detail') response = await getRecordDetail(url, env, user);
-              else if (path === '/api/statistics') response = await getStatistics(request, env, user, ctx);
-              else if (path === '/api/search/suggest') response = await getSearchSuggestions(url, env, user);
-              else if (path === '/api/leaderboard') response = await getLeaderboard(env, request, ctx);
-              else response = new Response('Not found', { status: 404, headers: CORS_HEADERS });
+              
+              // 3. [新增] 批量操作接口
+              else if (path === '/api/records/batch') {
+                if (method === 'DELETE') response = await batchDeleteRecords(request, env, user);
+                else response = errorResponse('Method Not Allowed', 405);
+              }
+
+              // 4. 记录详情与搜索增强
+              else if (path === '/api/records/detail') {
+                  response = await getRecordDetail(url, env, user);
+              }
+              else if (path === '/api/search/suggest') {
+                  // [新增] 智能搜索建议
+                  response = await getSearchSuggestions(url, env, user);
+              }
+
+              // 5. 统计与榜单 (带缓存)
+              else if (path === '/api/statistics') {
+                  // 传入 ctx 用于 waitUntil 缓存写入
+                  response = await getStatistics(request, env, user, ctx);
+              }
+              else if (path === '/api/leaderboard') {
+                  response = await getLeaderboard(env);
+              }
+              
+              // 6. 404
+              else {
+                  response = new Response('Not found', { status: 404, headers: CORS_HEADERS });
+              }
           }
       }
     } catch (error) {
