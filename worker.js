@@ -992,7 +992,8 @@ async function serveFrontend() {
     .timeline-dot { position: absolute; left: -26px; top: 0; width: 10px; height: 10px; border-radius: 50%; background: var(--bg-deep); border: 2px solid var(--primary); }
     .timeline-date { font-size: 0.8rem; color: var(--primary); font-weight: bold; margin-bottom: 5px; }
     .timeline-content { background: rgba(255,255,255,0.03); border-radius: 12px; padding: 12px; border: 1px solid rgba(255,255,255,0.05); transition: background 0.2s; }
-    
+    .time-input { text-align:center; font-family:'Cinzel', monospace; font-size:1.1rem; color:var(--primary); font-weight:bold; }
+
     .dock-nav { position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%); width: 95%; max-width: 480px; height: 60px; background: rgba(20, 20, 25, 0.9); backdrop-filter: blur(20px); -webkit-backdrop-filter: blur(20px); border: 1px solid rgba(255,255,255,0.1); border-radius: 30px; display: flex; justify-content: space-evenly; align-items: center; z-index: 100; box-shadow: 0 10px 30px rgba(0,0,0,0.6); padding: 0 5px; }
     .dock-item { display: flex; flex-direction: column; align-items: center; justify-content: center; color: #666; font-size: 0.65rem; gap: 3px; transition: 0.3s; width: 60px; height: 100%; cursor: pointer; }
     .dock-item svg { width: 22px; height: 22px; stroke: currentColor; stroke-width: 2; fill: none; transition: 0.3s; }
@@ -1037,13 +1038,11 @@ async function serveFrontend() {
     .about-logo { font-family: 'Cinzel'; font-size: 2rem; background: linear-gradient(to right, var(--primary), var(--secondary)); -webkit-background-clip: text; -webkit-text-fill-color: transparent; margin-bottom: 10px; }
     .about-ver { font-size: 0.8rem; color: #666; margin-bottom: 20px; border: 1px solid #333; display: inline-block; padding: 2px 8px; border-radius: 10px; }
 
-    /* [新增] 批量操作相关样式 */
+    /* --- 修复后的 Batch Bar 样式 --- */
     .batch-bar {
         position: fixed; 
         bottom: 90px; 
         left: 50%; 
-        /* 关键修改：默认向下位移 200% 确保完全隐藏 */
-        transform: translateX(-50%) translateY(200%);
         width: 90%; 
         max-width: 400px; 
         background: rgba(20,20,25,0.95);
@@ -1055,10 +1054,20 @@ async function serveFrontend() {
         justify-content: space-between; 
         align-items: center;
         z-index: 99; 
-        transition: transform 0.3s cubic-bezier(0.18, 0.89, 0.32, 1.28);
         box-shadow: 0 10px 40px rgba(0,0,0,0.5);
+
+        /* 关键修改：使用 visibility 和 opacity */
+        visibility: hidden;
+        opacity: 0;
+        transform: translateX(-50%) translateY(20px);
+        transition: all 0.3s cubic-bezier(0.18, 0.89, 0.32, 1.28);
     }
-    .batch-bar.show { transform: translateX(-50%) translateY(0); }
+
+    .batch-bar.show { 
+        visibility: visible;
+        opacity: 1;
+        transform: translateX(-50%) translateY(0); 
+    }
 
     .checkbox-overlay {
         position: absolute; top: 0; left: 0; width: 100%; height: 100%;
@@ -1105,6 +1114,50 @@ async function serveFrontend() {
     .c-bar:hover { background: var(--primary); }
     .c-bar.high-desire { background: linear-gradient(to top, var(--primary), var(--accent)); box-shadow: 0 0 10px var(--primary); }
     .phase-label { font-size: 0.6rem; color: #666; text-align: center; margin-top: 5px; }
+
+    /* 关于页面优化 */
+    .about-card {
+        background: linear-gradient(145deg, #1a1a1a, #0a0a0a);
+        border: 1px solid rgba(255,255,255,0.05);
+        border-radius: 24px;
+        padding: 40px 20px;
+        text-align: center;
+        position: relative;
+        overflow: hidden;
+    }
+    .about-card::before {
+        content: ''; position: absolute; top: -50%; left: -50%; width: 200%; height: 200%;
+        background: radial-gradient(circle, rgba(217,70,239,0.1) 0%, transparent 60%);
+        animation: rotateBg 20s linear infinite;
+        z-index: 0; pointer-events: none;
+    }
+    @keyframes rotateBg { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+
+    .about-logo-lg {
+        font-family: 'Cinzel', serif;
+        font-size: 2.8rem;
+        background: linear-gradient(to bottom, #fff, #888);
+        -webkit-background-clip: text;
+        -webkit-text-fill-color: transparent;
+        margin-bottom: 5px;
+        position: relative; z-index: 1;
+    }
+    .about-badge {
+        display: inline-block; padding: 4px 12px;
+        background: rgba(217,70,239,0.15); color: var(--primary);
+        border: 1px solid rgba(217,70,239,0.3);
+        border-radius: 20px; font-size: 0.75rem; font-weight: bold;
+        margin-bottom: 25px; position: relative; z-index: 1;
+    }
+    .about-text {
+        font-size: 0.9rem; color: #888; line-height: 1.8;
+        margin-bottom: 30px; position: relative; z-index: 1;
+        font-weight: 300;
+    }
+    .tech-stack {
+        display: flex; justify-content: center; gap: 15px; margin-bottom: 30px; position: relative; z-index: 1;
+    }
+    .tech-item { font-size: 0.7rem; color: #555; border: 1px solid #333; padding: 3px 8px; border-radius: 6px; }
   </style>
 </head>
 <body>
@@ -1398,12 +1451,32 @@ async function serveFrontend() {
              </div>
        </div>
        <div style="background:#222; border-radius:12px; padding:15px; margin:20px 0 15px;">
-          <div style="display:flex; justify-content:space-between; margin-bottom:5px;">
-             <span style="font-size:0.8rem; color:#aaa;">时长: <span id="vDur" style="color:#fff; font-size:1rem;">15</span> 分钟</span>
-             <span style="font-size:0.8rem; color:#aaa;">满意度: <span id="vSat" style="color:#fff; font-size:1rem;">5</span></span>
-          </div>
-          <input type="range" id="duration" min="0" max="180" step="1" value="15" oninput="document.getElementById('vDur').innerText=this.value" style="margin-bottom:10px;">
-          <input type="range" id="satisfaction" min="1" max="10" step="1" value="5" oninput="document.getElementById('vSat').innerText=this.value">
+           <div style="display:flex; justify-content:space-between; margin-bottom:10px;">
+               <span style="font-size:0.8rem; color:#aaa;">持续时长</span>
+               <span style="font-size:0.8rem; color:var(--primary);">
+                   <span id="vDurDisplay">00:00</span>
+               </span>
+           </div>
+           <div style="display:flex; gap:10px; align-items:center;">
+               <div style="flex:1; position:relative;">
+                   <input type="number" id="durMin" placeholder="0" min="0" class="time-input" oninput="updateTimeDisplay()">
+                   <span style="position:absolute; right:10px; top:12px; font-size:0.8rem; color:#666;">分</span>
+               </div>
+               <span style="color:#666;">:</span>
+               <div style="flex:1; position:relative;">
+                   <input type="number" id="durSec" placeholder="0" min="0" max="59" class="time-input" oninput="updateTimeDisplay()">
+                   <span style="position:absolute; right:10px; top:12px; font-size:0.8rem; color:#666;">秒</span>
+               </div>
+           </div>
+           
+           <!-- 满意度保留 -->
+           <div style="margin-top:15px; border-top:1px solid #333; padding-top:15px;">
+               <div style="display:flex; justify-content:space-between; margin-bottom:5px;">
+                   <span style="font-size:0.8rem; color:#aaa;">满意度</span>
+                   <span id="vSat" style="color:#fff; font-size:1rem;">5</span>
+               </div>
+               <input type="range" id="satisfaction" min="1" max="10" step="1" value="5" oninput="document.getElementById('vSat').innerText=this.value">
+           </div>
        </div>
        <div class="input-row">
           <div class="form-group"><label>高潮次数</label><input type="number" id="orgasmCount" value="1"></div>
@@ -1420,21 +1493,31 @@ async function serveFrontend() {
 
   <!-- 关于弹窗 -->
   <div id="aboutOverlay" class="modal-overlay">
-      <div class="modal-content">
-          <div style="display:flex; justify-content:flex-end;">
-              <span onclick="closeAbout()" style="font-size:1.5rem; color:#666; cursor:pointer;">&times;</span>
-          </div>
-          <div class="about-content">
-              <div class="about-logo">Secret Garden</div>
-              <div class="about-ver">v7.8 Heatmap & Gestures</div>
-              <p style="color:#aaa; font-size:0.9rem; line-height:1.6;">
-                  这里是你的私密花园，记录每一次真实的感受。<br>
-                  数据存储于云端，仅你可见。<br>
-                  愿你在这里找到属于自己的平静与欢愉。
-              </p>
-              <div style="margin-top:30px; border-top:1px solid #222; padding-top:20px; font-size:0.7rem; color:#444;">
-                  &copy; 2026 Secret Garden Project<br>
-                  Designed with Passion
+      <div class="modal-content" style="background:transparent; border:none; box-shadow:none;">
+          <div class="about-card">
+              <div style="position:absolute; top:15px; right:15px; z-index:2; cursor:pointer; color:#666;" onclick="closeAbout()">✕</div>
+              
+              <div class="about-logo-lg">Secret Garden</div>
+              <div class="about-badge">PRO v8.0</div>
+              
+              <div class="about-text">
+                  <p>记录每一次真实的悸动，<br>在数据的星河中寻找自我的韵律。</p>
+                  <p>这里没有评判，只有纯粹的<br>欢愉与宁静。</p>
+              </div>
+  
+              <div class="tech-stack">
+                  <span class="tech-item">Cloudflare D1</span>
+                  <span class="tech-item">Three.js</span>
+                  <span class="tech-item">FTS5 Search</span>
+              </div>
+  
+              <button class="btn btn-outline" onclick="window.open('https://github.com/your-repo')">
+                  <svg viewBox="0 0 24 24" width="16" height="16" stroke="currentColor" fill="none" style="vertical-align:middle; margin-right:5px;"><path d="M9 19c-5 1.5-5-2.5-7-3m14 6v-3.87a3.37 3.37 0 0 0-.94-2.61c3.14-.35 6.44-1.54 6.44-7A5.44 5.44 0 0 0 20 4.77 5.07 5.07 0 0 0 19.91 1S18.73.65 16 2.48a13.38 13.38 0 0 0-7 0C6.27.65 5.09 1 5.09 1A5.07 5.07 0 0 0 5 4.77a5.44 5.44 0 0 0-1.5 3.78c0 5.42 3.3 6.61 6.44 7A3.37 3.37 0 0 0 9 18.13V22"></path></svg>
+                  Project Source
+              </button>
+              
+              <div style="margin-top:20px; font-size:0.6rem; color:#444;">
+                  Designed for Private Use
               </div>
           </div>
       </div>
@@ -1596,48 +1679,69 @@ async function serveFrontend() {
 
     // --- Stats & Charts ---
     async function loadStats(range='all') {
-        const r = await fetch(API+'/statistics?range='+range, { headers: getHeaders() });
-        const s = await r.json();
-        if(s.error === 'Unauthorized') return logout();
-        
-        document.getElementById('sTotal').innerText = s.total_records;
-        document.getElementById('sDuration').innerText = Math.round(s.avg_duration);
-        document.getElementById('sScore').innerText = s.avg_satisfaction;
-        document.getElementById('sOrgasm').innerText = s.total_orgasms;
-        
-        // Render Heatmap
-        renderHeatmap(s.daily_activity || {});
-
-        // Charts
-        Chart.defaults.color = '#666'; Chart.defaults.responsive = true; Chart.defaults.maintainAspectRatio = false;
-        if(chart1) chart1.destroy(); if(chart2) chart2.destroy(); if(chart3) chart3.destroy();
-        
-        const ctx1 = document.getElementById('chartType').getContext('2d');
-        chart1 = new Chart(ctx1, { type: 'doughnut', data: { labels: ['自慰','性爱'], datasets: [{ data: [s.masturbation, s.intercourse], backgroundColor: ['#d946ef', '#f43f5e'], borderWidth: 0 }] }, options: { maintainAspectRatio:false, cutout: '75%', plugins: { legend: { display: false } } } });
-        
-        const ctx2 = document.getElementById('chartHistory').getContext('2d');
-        const labels = Object.keys(s.records_by_month).sort();
-        chart2 = new Chart(ctx2, { type: 'bar', data: { labels: labels.map(l=>l.slice(5)), datasets: [{ label: '次', data: labels.map(k => s.records_by_month[k]), backgroundColor: '#8b5cf6', borderRadius: 4 }] }, options: { maintainAspectRatio:false, scales: { x: { grid: {display:false} }, y: { display:false } }, plugins: { legend: {display:false} } } });
-        
-        const ctx3 = document.getElementById('chartHours').getContext('2d');
-        const gradient = ctx3.createLinearGradient(0, 0, 0, 200);
-        gradient.addColorStop(0, 'rgba(217, 70, 239, 0.5)');
-        gradient.addColorStop(1, 'rgba(217, 70, 239, 0)');
-
-        chart3 = new Chart(ctx3, {
-            type: 'line',
-            data: {
-                labels: Array.from({length:24}, (_,i)=>i),
-                datasets: [{ label: '活跃时段', data: s.hour_distribution, borderColor: '#d946ef', backgroundColor: gradient, fill: true, tension: 0.4, pointRadius: 2 }]
-            },
-            options: {
-                maintainAspectRatio: false,
-                plugins: { legend: { display: false }, tooltip: { mode: 'index', intersect: false } },
-                scales: { x: { grid: { display: false, color:'#333' }, ticks: { color: '#666', maxTicksLimit: 8 } }, y: { display: false } }
-            }
-        });
-
-        if(currentPage===1) loadRecords();
+        try {
+            const r = await fetch(API+'/statistics?range='+range, { headers: getHeaders() });
+            const s = await r.json();
+            
+            if(s.error === 'Unauthorized') return logout();
+            
+            document.getElementById('sTotal').innerText = s.total_records;
+            
+            // --- 格式化平均时长 ---
+            // s.avg_duration 现在是秒数
+            document.getElementById('sDuration').innerText = fmtTimeShort(Math.round(s.avg_duration || 0));
+            
+            document.getElementById('sScore').innerText = s.avg_satisfaction;
+            document.getElementById('sOrgasm').innerText = s.total_orgasms;
+            
+            // 渲染热力图
+            renderHeatmap(s.daily_activity || {});
+    
+            // 更新图表 (Chart.js)
+            if(chart1) chart1.destroy(); 
+            if(chart2) chart2.destroy(); 
+            if(chart3) chart3.destroy();
+            
+            // 饼图
+            const ctx1 = document.getElementById('chartType').getContext('2d');
+            chart1 = new Chart(ctx1, { 
+                type: 'doughnut', 
+                data: { labels: ['自慰','性爱'], datasets: [{ data: [s.masturbation, s.intercourse], backgroundColor: ['#d946ef', '#f43f5e'], borderWidth: 0 }] }, 
+                options: { maintainAspectRatio:false, cutout: '75%', plugins: { legend: { display: false } } } 
+            });
+            
+            // 柱状图 (月度)
+            const ctx2 = document.getElementById('chartHistory').getContext('2d');
+            const labels = Object.keys(s.records_by_month).sort();
+            chart2 = new Chart(ctx2, { 
+                type: 'bar', 
+                data: { labels: labels.map(l=>l.slice(5)), datasets: [{ label: '次', data: labels.map(k => s.records_by_month[k]), backgroundColor: '#8b5cf6', borderRadius: 4 }] }, 
+                options: { maintainAspectRatio:false, scales: { x: { grid: {display:false} }, y: { display:false } }, plugins: { legend: {display:false} } } 
+            });
+            
+            // 曲线图 (时段)
+            const ctx3 = document.getElementById('chartHours').getContext('2d');
+            const gradient = ctx3.createLinearGradient(0, 0, 0, 200);
+            gradient.addColorStop(0, 'rgba(217, 70, 239, 0.5)');
+            gradient.addColorStop(1, 'rgba(217, 70, 239, 0)');
+    
+            chart3 = new Chart(ctx3, {
+                type: 'line',
+                data: {
+                    labels: Array.from({length:24}, (_,i)=>i),
+                    datasets: [{ label: '活跃时段', data: s.hour_distribution, borderColor: '#d946ef', backgroundColor: gradient, fill: true, tension: 0.4, pointRadius: 2 }]
+                },
+                options: {
+                    maintainAspectRatio: false,
+                    plugins: { legend: { display: false }, tooltip: { mode: 'index', intersect: false } },
+                    scales: { x: { grid: { display: false, color:'#333' }, ticks: { color: '#666', maxTicksLimit: 8 } }, y: { display: false } }
+                }
+            });
+    
+            if(currentPage===1) loadRecords();
+        } catch(e) {
+            console.error("Stats Error:", e);
+        }
     }
 
     function renderHeatmap(data) {
@@ -1707,88 +1811,108 @@ async function serveFrontend() {
     }
     function renderVirtualList() {
         if (!document.getElementById('view-home').classList.contains('active')) return;
+
         const container = document.getElementById('listContainer');
         const scrollTop = window.scrollY;
         const viewportHeight = window.innerHeight;
+
+        // 计算可视范围
         const startIndex = Math.max(0, Math.floor(scrollTop / virtualConfig.itemHeight) - virtualConfig.buffer);
         const endIndex = Math.min(allRecords.length, Math.ceil((scrollTop + viewportHeight) / virtualConfig.itemHeight) + virtualConfig.buffer);
-        
+
+        // 标记当前存在的节点
         const existingNodes = new Map();
         container.querySelectorAll('.record-card').forEach(node => existingNodes.set(parseInt(node.dataset.index), node));
-        
+
+        // 清理超出范围的节点
         existingNodes.forEach((node, idx) => { if (idx < startIndex || idx >= endIndex) node.remove(); });
 
         for (let i = startIndex; i < endIndex; i++) {
-            if (!existingNodes.has(i)) {
-                const item = allRecords[i];
-                if (!item) continue;
-                
-                const div = document.createElement('div');
-                const isSelected = selectedIds.has(item.id); // 检查是否选中
-                div.className = \`record-card \${item.isM?'type-m':'type-i'} \${isBatchMode?'batch-mode':''} \${isSelected?'selected':''}\`;
-                div.dataset.index = i;
-                div.style.top = (i * virtualConfig.itemHeight) + 'px';
-                
-                if (isBatchMode) {
-                    // 批量模式下点击整卡片切换选中
-                    div.onclick = () => toggleSelection(item.id);
-                } else {
-                    // 普通模式逻辑 (保留原有的手势和点击编辑)
-                    let startX = 0, currentX = 0;
-                    div.addEventListener('touchstart', (e) => {
-                        startX = e.touches[0].clientX;
-                        document.querySelectorAll('.record-card.swiped').forEach(el => { if(el!==div) el.classList.remove('swiped'); });
-                    }, {passive: true});
-                    div.addEventListener('touchmove', (e) => { currentX = e.touches[0].clientX; }, {passive: true});
-                    div.addEventListener('touchend', (e) => {
-                        const diff = startX - currentX;
-                        if (diff > 50) div.classList.add('swiped'); 
-                        else if (diff < -50) div.classList.remove('swiped');
+            const item = allRecords[i];
+            if (!item) continue;
 
-                        if (Math.abs(diff) < 10) { 
-                            if(!e.target.closest('.btn-swipe-del')) editRecord(esc(item.id));
-                        }
-                    });
-                }
+            // 检查选中状态
+            const isSelected = selectedIds.has(item.id);
 
-                div.innerHTML = \`
-                    <div class="record-card-content">
-                        <div class="record-icon">\${item.isM ? '🖐' : '❤️'}</div>
-                        <div style="flex:1;">
-                            <div style="display:flex; justify-content:space-between; color:#eee; font-weight:600; margin-bottom:4px;">
-                                <span>\${item.locStr}</span>
-                                <span style="color:\${item.isM?'var(--primary)':'var(--accent)'}">\${item.duration}分</span>
-                            </div>
-                            <div style="font-size:0.8rem; color:#888;">\${item.dateStr} · \${item.satisfaction}/10</div>
-                            <div style="margin-top:6px; display:flex; gap:6px; flex-wrap:wrap;">
-                                \${item.tags.map(t=>\`<span style="background:rgba(255,255,255,0.1); padding:2px 6px; border-radius:4px; font-size:0.7rem;">\${esc(t)}</span>\`).join('')}
-                            </div>
-                        </div>
-                    </div>
-                    <div class="record-card-actions">
-                        <button class="btn-swipe-del" onclick="quickDelete('\${esc(item.id)}', this)">
-                           <svg viewBox="0 0 24 24" width="24" height="24" stroke="currentColor" stroke-width="2" fill="none"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path></svg>
-                        </button>
-                    </div>\`;
-                container.appendChild(div);
-            } else {
-                // [新增] 如果节点已存在，更新其选中样式（防止复用时样式不同步）
-                const existingNode = existingNodes.get(i);
-                const item = allRecords[i];
+            // --- 如果节点已存在，仅更新状态 ---
+            if (existingNodes.has(i)) {
+                const node = existingNodes.get(i);
+                // 更新批量模式类
+                if (isBatchMode) node.classList.add('batch-mode');
+                else node.classList.remove('batch-mode');
 
-                if (isBatchMode) existingNode.classList.add('batch-mode');
-                else existingNode.classList.remove('batch-mode');
+                // 更新选中状态类
+                if (isSelected) node.classList.add('selected');
+                else node.classList.remove('selected');
 
-                if (selectedIds.has(item.id)) existingNode.classList.add('selected');
-                else existingNode.classList.remove('selected');
-
-                // 动态切换事件处理有点复杂，重新生成节点通常更简单。
-                // 但为了性能，这里我们假设切换模式时，上方的 toggleBatchMode 里的 renderVirtualList 会触发重绘。
-                // 由于 renderVirtualList 里的 existingNodes 逻辑是跳过已存在的，
-                // 所以我们需要在 toggleBatchMode 里先清空 container innerHTML 强制重绘，或者在这里更新 onclick。
-                // 简单方案：在 toggleBatchMode 中设置 listContainer.innerHTML = '' 并重置 existingNodes 逻辑。
+                // 更新点击事件 (防止模式切换后事件错乱)
+                node.onclick = isBatchMode ? () => toggleSelection(item.id) : null;
+                continue; 
             }
+
+            // --- 创建新节点 ---
+            const div = document.createElement('div');
+            div.className = \`record-card \${item.isM?'type-m':'type-i'} \${isBatchMode?'batch-mode':''} \${isSelected?'selected':''}\`;
+            div.dataset.index = i;
+            div.style.top = (i * virtualConfig.itemHeight) + 'px';
+
+            // 时长格式化
+            const timeDisplay = fmtTimeShort(item.duration);
+
+            // 绑定事件
+            if (isBatchMode) {
+                div.onclick = () => toggleSelection(item.id);
+                // 批量模式下显示遮罩
+                div.innerHTML = getCardHTML(item, timeDisplay) + 
+                                \`<div class="checkbox-overlay"><div class="custom-chk"></div></div>\`;
+            } else {
+                // 普通模式：左滑删除逻辑
+                let startX = 0, currentX = 0;
+                div.addEventListener('touchstart', (e) => {
+                    startX = e.touches[0].clientX;
+                    // 重置其他已滑动的卡片
+                    document.querySelectorAll('.record-card.swiped').forEach(el => { if(el!==div) el.classList.remove('swiped'); });
+                }, {passive: true});
+
+                div.addEventListener('touchmove', (e) => { currentX = e.touches[0].clientX; }, {passive: true});
+
+                div.addEventListener('touchend', (e) => {
+                    const diff = startX - currentX;
+                    if (diff > 60) div.classList.add('swiped'); 
+                    else if (diff < -60) div.classList.remove('swiped');
+
+                    // 点击进入编辑 (排除侧滑按钮)
+                    if (Math.abs(diff) < 10 && !e.target.closest('.btn-swipe-del')) { 
+                        editRecord(item.id);
+                    }
+                });
+
+                div.innerHTML = getCardHTML(item, timeDisplay) + 
+                                \`<div class="record-card-actions">
+                                    <button class="btn-swipe-del" onclick="quickDelete('\${item.id}', this)">删除</button>
+                                 </div>\`;
+            }
+
+            container.appendChild(div);
         }
+    }
+
+    // 辅助：生成卡片内部 HTML 减少重复
+    function getCardHTML(item, timeStr) {
+        return \`
+        <div class="record-card-content">
+            <div class="record-icon">\${item.isM ? '🖐' : '❤️'}</div>
+            <div style="flex:1; overflow:hidden;">
+                <div style="display:flex; justify-content:space-between; color:#eee; font-weight:600; margin-bottom:4px;">
+                    <span>\${item.locStr}</span>
+                    <span style="color:\${item.isM?'var(--primary)':'var(--accent)'}; font-family:'Cinzel'">\${timeStr}</span>
+                </div>
+                <div style="font-size:0.8rem; color:#888;">\${item.dateStr} · \${item.satisfaction}/10</div>
+                <div style="margin-top:6px; display:flex; gap:6px; flex-wrap:wrap;">
+                    \${item.tags.map(t=>\`<span style="background:rgba(255,255,255,0.1); padding:2px 6px; border-radius:4px; font-size:0.7rem;">\${esc(t)}</span>\`).join('')}
+                </div>
+            </div>
+        </div>\`;
     }
     window.addEventListener('scroll', () => {
         if (!scrollTicking) {
@@ -1982,11 +2106,32 @@ async function serveFrontend() {
         const start = localStorage.getItem('timerStart');
         if(start) {
             const diff = Date.now() - parseInt(start);
-            const min = Math.max(1, Math.round(diff/60000));
-            localStorage.removeItem('timerStart'); clearInterval(timerInterval);
+            const totalSec = Math.round(diff / 1000); // 精确到秒
+            localStorage.removeItem('timerStart'); 
+            clearInterval(timerInterval);
             document.getElementById('immersiveTimer').style.display = 'none';
-            openModal(false); document.getElementById('duration').value = min; document.getElementById('vDur').innerText = min;
+
+            openModal(false); 
+            document.getElementById('durMin').value = Math.floor(totalSec / 60);
+            document.getElementById('durSec').value = totalSec % 60;
+            updateTimeDisplay();
         }
+    }
+    function fmtTime(seconds) {
+    const m = Math.floor(seconds / 60);
+    const s = seconds % 60;
+    return \`\${m}分\${s.toString().padStart(2, '0')}秒\`;
+    }
+    function fmtTimeShort(seconds) { // 用于列表显示 05:30
+        const m = Math.floor(seconds / 60);
+        const s = seconds % 60;
+        return \`\${m.toString().padStart(2,'0')}:\${s.toString().padStart(2,'0')}\`;
+    }
+    // 2. 新增：更新输入框显示
+    function updateTimeDisplay() {
+        const m = parseInt(document.getElementById('durMin').value) || 0;
+        const s = parseInt(document.getElementById('durSec').value) || 0;
+        document.getElementById('vDurDisplay').innerText = fmtTimeShort(m * 60 + s);
     }
 
     // --- CRUD Forms ---
@@ -1997,60 +2142,135 @@ async function serveFrontend() {
         document.getElementById('secIntercourse').classList.toggle('hidden', type !== 'intercourse');
     }
     function openModal(isEdit) {
-        document.getElementById('modalOverlay').style.display = 'flex';
-        setTimeout(()=>document.getElementById('modalOverlay').classList.add('show'), 10);
-        document.getElementById('formTitle').innerText = isEdit ? '编辑' : '新记录';
+        const modal = document.getElementById('modalOverlay');
+        modal.style.display = 'flex';
+        // 强制重绘以触发 transition
+        requestAnimationFrame(() => modal.classList.add('show'));
+
+        document.getElementById('formTitle').innerText = isEdit ? '编辑记录' : '新记录';
         document.getElementById('deleteBtn').style.display = isEdit ? 'block' : 'none';
+
         if(!isEdit) {
+            // --- 新记录初始化 ---
             document.getElementById('recordId').value = '';
-            const now = new Date(); now.setMinutes(now.getMinutes() - now.getTimezoneOffset());
+
+            // 时间设为当前
+            const now = new Date(); 
+            now.setMinutes(now.getMinutes() - now.getTimezoneOffset());
             document.getElementById('datetime').value = now.toISOString().slice(0,16);
+
+            // 默认类型
             setActType('masturbation');
-            document.getElementById('duration').value = 15; document.getElementById('vDur').innerText = 15;
-            document.getElementById('satisfaction').value = 5; document.getElementById('vSat').innerText = 5;
-            document.getElementById('orgasmCount').value = 1; document.querySelectorAll('input[type="checkbox"]').forEach(c => c.checked = false);
-            document.getElementById('partnerName').value = ''; document.getElementById('sexualPosition').value = ''; document.getElementById('experience').value = '';
+
+            // 默认时长 (15分 0秒)
+            document.getElementById('durMin').value = 15;
+            document.getElementById('durSec').value = 0;
+            updateTimeDisplay(); // 更新显示
+
+            // 其他默认值
+            document.getElementById('satisfaction').value = 5; 
+            document.getElementById('vSat').innerText = 5;
+            document.getElementById('orgasmCount').value = 1; 
+            document.getElementById('ejaculationCount').value = 1; 
+
+            // 清空文本和选框
+            document.getElementById('partnerName').value = ''; 
+            document.getElementById('sexualPosition').value = ''; 
+            document.getElementById('experience').value = '';
+            document.querySelectorAll('input[type="checkbox"]').forEach(c => c.checked = false);
         }
     }
     function closeModal() { document.getElementById('modalOverlay').classList.remove('show'); setTimeout(()=>document.getElementById('modalOverlay').style.display='none',300); }
     async function editRecord(id) {
-        const r = await fetch(API+'/records/detail?id='+id, { headers: getHeaders() });
-        const d = await r.json();
-        openModal(true);
-        document.getElementById('recordId').value = d.id;
-        setActType(d.activity_type);
-        const utc = new Date(d.datetime);
-        const loc = new Date(utc.getTime() - (utc.getTimezoneOffset() * 60000));
-        document.getElementById('datetime').value = loc.toISOString().slice(0,16);
-        ['location','mood','duration','satisfaction','orgasmCount','ejaculationCount','experience'].forEach(k => {
-             const key = k === 'orgasmCount' ? 'orgasm_count' : (k === 'ejaculationCount' ? 'ejaculation_count' : k);
-             if(d[key] !== undefined) document.getElementById(k).value = d[key];
-        });
-        document.getElementById('vDur').innerText = d.duration; document.getElementById('vSat').innerText = d.satisfaction;
-        if(d.stimulation) document.getElementById('stimulation').value = d.stimulation;
-        if(d.partner_name) document.getElementById('partnerName').value = d.partner_name;
-        if(d.sexual_position) document.getElementById('sexualPosition').value = d.sexual_position;
-        const acts = d.acts || [];
-        document.querySelectorAll('input[name="acts"]').forEach(cb => cb.checked = acts.includes(cb.value));
+        try {
+            const r = await fetch(API+'/records/detail?id='+id, { headers: getHeaders() });
+            const d = await r.json();
+
+            openModal(true);
+            document.getElementById('recordId').value = d.id;
+            setActType(d.activity_type);
+
+            // 处理日期 (UTC -> Local)
+            const utc = new Date(d.datetime);
+            const loc = new Date(utc.getTime() - (utc.getTimezoneOffset() * 60000));
+            document.getElementById('datetime').value = loc.toISOString().slice(0,16);
+
+            // 基础字段回填
+            const fields = ['location','mood','satisfaction','orgasm_count','ejaculation_count','experience'];
+            fields.forEach(k => {
+                 // 兼容数据库字段命名差异
+                 const domId = k === 'orgasm_count' ? 'orgasmCount' : (k === 'ejaculation_count' ? 'ejaculationCount' : k);
+                 if(d[k] !== undefined) document.getElementById(domId).value = d[k];
+            });
+
+            // --- 时长回填 (秒 -> 分/秒) ---
+            const totalSec = d.duration || 0;
+            document.getElementById('durMin').value = Math.floor(totalSec / 60);
+            document.getElementById('durSec').value = totalSec % 60;
+            updateTimeDisplay();
+
+            document.getElementById('vSat').innerText = d.satisfaction;
+
+            // 额外字段
+            if(d.stimulation) document.getElementById('stimulation').value = d.stimulation;
+            if(d.partner_name) document.getElementById('partnerName').value = d.partner_name;
+            if(d.sexual_position) document.getElementById('sexualPosition').value = d.sexual_position;
+
+            // 标签回填 (record_acts)
+            const acts = d.acts || [];
+            document.querySelectorAll('input[name="acts"]').forEach(cb => cb.checked = acts.includes(cb.value));
+
+        } catch(e) {
+            console.error(e);
+            alert('加载失败');
+            closeModal();
+        }
     }
     async function saveRecord() {
         const id = document.getElementById('recordId').value;
         const type = document.getElementById('actType').value;
+
+        // 收集标签
         const acts = [];
         document.querySelectorAll('input[name="acts"]:checked').forEach(c => acts.push(c.value));
+
+        // --- 计算总秒数 ---
+        const durM = parseInt(document.getElementById('durMin').value) || 0;
+        const durS = parseInt(document.getElementById('durSec').value) || 0;
+        const totalDuration = (durM * 60) + durS;
+
         const data = {
-          id: id||undefined, activity_type: type, datetime: new Date(document.getElementById('datetime').value).toISOString(),
-          duration: document.getElementById('duration').value, location: document.getElementById('location').value, mood: document.getElementById('mood').value,
-          satisfaction: document.getElementById('satisfaction').value, orgasm_count: document.getElementById('orgasmCount').value, ejaculation_count: document.getElementById('ejaculationCount').value,
-          experience: document.getElementById('experience').value, acts: acts,
+          id: id || undefined, 
+          activity_type: type, 
+          datetime: new Date(document.getElementById('datetime').value).toISOString(),
+          duration: totalDuration, // 提交秒数
+          location: document.getElementById('location').value, 
+          mood: document.getElementById('mood').value,
+          satisfaction: parseInt(document.getElementById('satisfaction').value), 
+          orgasm_count: parseInt(document.getElementById('orgasmCount').value), 
+          ejaculation_count: parseInt(document.getElementById('ejaculationCount').value),
+          experience: document.getElementById('experience').value, 
+          acts: acts,
+          // 类型特定字段
           stimulation: type==='masturbation' ? document.getElementById('stimulation').value : undefined,
           partner_name: type==='intercourse' ? document.getElementById('partnerName').value : undefined,
           sexual_position: type==='intercourse' ? document.getElementById('sexualPosition').value : undefined
        };
-       await fetch(API+'/records', { method:id?'PUT':'POST', headers: getHeaders(), body:JSON.stringify(data) });
-       closeModal(); resetList(); loadRecords(); loadStats(); 
-       if(document.getElementById('view-history').classList.contains('active')) { 
-           historyPage=1; document.getElementById('timelineContainer').innerHTML=''; historyHasMore=true; loadHistory();
+
+       const method = id ? 'PUT' : 'POST';
+       const r = await fetch(API+'/records', { method: method, headers: getHeaders(), body:JSON.stringify(data) });
+    
+       if (r.ok) {
+           closeModal(); 
+           resetList(); 
+           loadRecords(); 
+           loadStats(); 
+           // 如果在历史视图，刷新历史
+           if(document.getElementById('view-history').classList.contains('active')) { 
+               historyPage=1; document.getElementById('timelineContainer').innerHTML=''; historyHasMore=true; loadHistory();
+           }
+       } else {
+           alert('保存失败');
        }
     }
     async function deleteCurrentRecord() {
