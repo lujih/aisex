@@ -116,15 +116,14 @@ export default {
 async function handleAdmin(req, env, reqId) {
     if (!env.ADMIN_PASSWORD) return errorResponse('Config Error', 500);
     if (req.headers.get('X-Admin-Pass') !== env.ADMIN_PASSWORD) {
-        log(reqId, 'WARN', 'Admin Auth Failed', { ip: req.headers.get('cf-connecting-ip') });
         return errorResponse('Password Error', 403);
     }
 
     const url = new URL(req.url);
     const path = url.pathname;
 
+    // 统计概览
     if (path === '/api/admin/stats') {
-        // 并行查询优化速度
         const [uRes, rRes] = await Promise.all([
             env.DB.prepare('SELECT count(*) as c FROM users').first(),
             env.DB.prepare('SELECT count(*) as c FROM records').first()
@@ -136,25 +135,47 @@ async function handleAdmin(req, env, reqId) {
         });
     }
 
+    // 用户列表与操作
     if (path === '/api/admin/users') {
         if (req.method === 'GET') {
-            const { results } = await env.DB.prepare('SELECT uid, username, created_at, (SELECT count(*) FROM records WHERE records.uid = users.uid) as rec_count FROM users ORDER BY rec_count DESC').all();
+            // [修改] 增加 last_login_attempt 字段查询
+            const { results } = await env.DB.prepare(`
+                SELECT uid, username, created_at, last_login_attempt, 
+                (SELECT count(*) FROM records WHERE records.uid = users.uid) as rec_count 
+                FROM users ORDER BY rec_count DESC
+            `).all();
             return jsonResponse(results);
         }
+        
+        // 删除用户
         if (req.method === 'DELETE') {
             const uid = url.searchParams.get('uid');
             if (!uid) return errorResponse('Missing UID');
-            
-            // 优化：使用 batch 确保原子性 (D1 特性)
             await env.DB.batch([
                 env.DB.prepare('DELETE FROM records WHERE uid = ?').bind(uid),
                 env.DB.prepare('DELETE FROM users WHERE uid = ?').bind(uid)
             ]);
-            
-            log(reqId, 'INFO', 'Admin deleted user', { uid });
             return jsonResponse({ message: 'User deleted' });
         }
     }
+    
+    // [新增] 重置用户密码
+    if (path === '/api/admin/users/reset') {
+        if (req.method === 'POST') {
+            const { uid, newPassword } = await req.json();
+            if(!uid || !newPassword) return errorResponse('Missing params');
+            
+            const salt = generateSalt();
+            const hash = await hashPassword(newPassword, salt);
+            
+            await env.DB.prepare('UPDATE users SET password_hash = ?, salt = ?, updated_at = ? WHERE uid = ?')
+                .bind(hash, salt, new Date().toISOString(), uid)
+                .run();
+                
+            return jsonResponse({ message: 'Password reset success' });
+        }
+    }
+    
     return errorResponse('Not found', 404);
 }
 
@@ -493,6 +514,26 @@ async function verifyAuth(request, env) {
         return null; 
     } 
 }
+// [新增] 批量删除
+async function batchDeleteRecords(req, env, user) {
+    const { ids } = await req.json();
+    if (!ids || !Array.isArray(ids) || ids.length === 0) return errorResponse('无有效ID');
+    
+    // 限制单次批量操作数量，防止超时
+    if (ids.length > 50) return errorResponse('单次最多删除50条');
+
+    // 使用 batch 构建批量语句，确保只能删除属于当前用户的记录
+    const stmts = ids.map(id => 
+        env.DB.prepare('DELETE FROM records WHERE id = ? AND uid = ?').bind(id, user.uid)
+    );
+
+    try {
+        await env.DB.batch(stmts);
+        return jsonResponse({ message: `成功删除 ${ids.length} 条记录` });
+    } catch (e) {
+        return errorResponse('批量删除失败');
+    }
+}
 async function signJwt(payload, secret) { const h = b64url(JSON.stringify({ alg: 'HS256', typ: 'JWT' })); const b = b64url(JSON.stringify({ ...payload, exp: Math.floor(Date.now()/1000)+604800 })); const k = await crypto.subtle.importKey('raw', new TextEncoder().encode(secret), { name: 'HMAC', hash: 'SHA-256' }, false, ['sign']); const s = await crypto.subtle.sign('HMAC', k, new TextEncoder().encode(`${h}.${b}`)); return `${h}.${b}.${b64url(s)}`; }
 async function verifyJwt(token, secret) { const [h, b, s] = token.split('.'); const k = await crypto.subtle.importKey('raw', new TextEncoder().encode(secret), { name: 'HMAC', hash: 'SHA-256' }, false, ['verify']); if (!await crypto.subtle.verify('HMAC', k, b64urlDecode(s), new TextEncoder().encode(`${h}.${b}`))) throw new Error('Invalid'); const p = JSON.parse(new TextDecoder().decode(b64urlDecode(b))); if (p.exp < Date.now()/1000) throw new Error('Expired'); return p; }
 function b64url(s) { return (typeof s==='string'?btoa(s):btoa(String.fromCharCode(...new Uint8Array(s)))).replace(/\+/g,'-').replace(/\//g,'_').replace(/=+$/,''); }
@@ -677,6 +718,34 @@ async function serveFrontend() {
     .about-content { padding: 30px 20px; text-align: center; }
     .about-logo { font-family: 'Cinzel'; font-size: 2rem; background: linear-gradient(to right, var(--primary), var(--secondary)); -webkit-background-clip: text; -webkit-text-fill-color: transparent; margin-bottom: 10px; }
     .about-ver { font-size: 0.8rem; color: #666; margin-bottom: 20px; border: 1px solid #333; display: inline-block; padding: 2px 8px; border-radius: 10px; }
+
+    /* [新增] 批量操作相关样式 */
+    .batch-bar {
+        position: fixed; bottom: 90px; left: 50%; transform: translateX(-50%) translateY(100px);
+        width: 90%; max-width: 400px; background: rgba(20,20,25,0.95);
+        backdrop-filter: blur(10px); border: 1px solid rgba(255,255,255,0.15);
+        border-radius: 50px; padding: 12px 25px;
+        display: flex; justify-content: space-between; align-items: center;
+        z-index: 99; transition: transform 0.3s cubic-bezier(0.18, 0.89, 0.32, 1.28);
+        box-shadow: 0 10px 40px rgba(0,0,0,0.5);
+    }
+    .batch-bar.show { transform: translateX(-50%) translateY(0); }
+
+    .checkbox-overlay {
+        position: absolute; top: 0; left: 0; width: 100%; height: 100%;
+        background: rgba(0,0,0,0.6); z-index: 10; display: none;
+        align-items: center; padding-left: 20px;
+    }
+    .record-card.batch-mode .checkbox-overlay { display: flex; }
+    /* 自定义复选框 */
+    .custom-chk {
+        width: 24px; height: 24px; border-radius: 50%; border: 2px solid #666;
+        display: flex; align-items: center; justify-content: center; transition: 0.2s;
+        background: transparent;
+    }
+    .record-card.selected .custom-chk { background: var(--primary); border-color: var(--primary); }
+    .custom-chk::after { content:'✓'; color:#fff; font-size:0.9rem; display:none; }
+    .record-card.selected .custom-chk::after { display:block; }
   </style>
 </head>
 <body>
@@ -709,6 +778,7 @@ async function serveFrontend() {
        <h2 style="font-family:'Cinzel'; margin:0; font-size:1.4rem;">My Garden</h2>
        <div style="display:flex; align-items:center; gap:10px;">
            <span id="headerDate" style="font-size:0.8rem; color:#666;"></span>
+           <button id="btnBatchToggle" onclick="toggleBatchMode()" style="background:transparent; border:1px solid rgba(255,255,255,0.2); color:#aaa; width:32px; height:32px; border-radius:8px; display:flex; align-items:center; justify-content:center; cursor:pointer; font-size:0.9rem;">⋮</button>
            <button onclick="openModal(false)" style="background:rgba(255,255,255,0.1); border:none; color:var(--primary); width:32px; height:32px; border-radius:50%; display:flex; align-items:center; justify-content:center; cursor:pointer; font-size:1.2rem; transition:0.2s;">+</button>
        </div>
     </header>
@@ -752,6 +822,11 @@ async function serveFrontend() {
        </div>
        
        <div id="listContainer"></div>
+       <!-- [新增] 批量操作浮动栏 -->
+       <div id="batchBar" class="batch-bar">
+           <span style="font-size:0.9rem; color:#ccc;">已选 <span id="batchCount" style="color:#fff; font-weight:bold;">0</span> 项</span>
+           <button class="btn btn-danger" style="width:auto; padding:8px 20px; font-size:0.85rem;" onclick="execBatchDelete()">删除</button>
+       </div>
        <div id="scrollSentinel" style="text-align:center; padding:20px; font-size:0.8rem; color:#555;">加载中...</div>
     </div>
 
@@ -826,7 +901,7 @@ async function serveFrontend() {
             <h4 style="border-bottom:1px solid #333; padding-bottom:10px; margin-top:20px;">用户管理</h4>
             <div style="overflow-x:auto;">
                 <table class="admin-table">
-                    <thead><tr><th>用户</th><th>注册时间</th><th>记录数</th><th>操作</th></tr></thead>
+                    <thead><tr><th>用户</th><th>注册/登录</th><th>记录</th><th>操作</th></tr></thead>
                     <tbody id="adminUserList"></tbody>
                 </table>
             </div>
@@ -962,6 +1037,8 @@ async function serveFrontend() {
     let scrollTicking = false;
     let chart1, chart2, chart3; 
     let timerInterval = null;
+    let isBatchMode = false;
+    let selectedIds = new Set();
     
     const API = '/api';
     const TR_MAP = ${JSON.stringify(TR_MAP)};
@@ -1189,7 +1266,6 @@ async function serveFrontend() {
         if(currentPage === 1) {
             allRecords = [];
             document.getElementById('listContainer').innerHTML = '<div class="virtual-spacer" id="vSpacer"></div>';
-            window.scrollTo(0, 0);
         }
         const r = await fetch(\`\${API}/records?page=\${currentPage}&search=\${q}\`, { headers: getHeaders() });
         const d = await r.json();
@@ -1239,27 +1315,32 @@ async function serveFrontend() {
                 if (!item) continue;
                 
                 const div = document.createElement('div');
-                div.className = \`record-card \${item.isM?'type-m':'type-i'}\`;
+                const isSelected = selectedIds.has(item.id); // 检查是否选中
+                div.className = \`record-card \${item.isM?'type-m':'type-i'} \${isBatchMode?'batch-mode':''} \${isSelected?'selected':''}\`;
                 div.dataset.index = i;
                 div.style.top = (i * virtualConfig.itemHeight) + 'px';
                 
-                // Swipe Logic
-                let startX = 0, currentX = 0;
-                div.addEventListener('touchstart', (e) => {
-                    startX = e.touches[0].clientX;
-                    // Close others
-                    document.querySelectorAll('.record-card.swiped').forEach(el => { if(el!==div) el.classList.remove('swiped'); });
-                }, {passive: true});
-                div.addEventListener('touchmove', (e) => { currentX = e.touches[0].clientX; }, {passive: true});
-                div.addEventListener('touchend', (e) => {
-                    const diff = startX - currentX;
-                    if (diff > 50) div.classList.add('swiped'); // Left swipe
-                    else if (diff < -50) div.classList.remove('swiped'); // Right swipe
-                    
-                    if (Math.abs(diff) < 10) { // Click
-                        if(!e.target.closest('.btn-swipe-del')) editRecord(esc(item.id));
-                    }
-                });
+                if (isBatchMode) {
+                    // 批量模式下点击整卡片切换选中
+                    div.onclick = () => toggleSelection(item.id);
+                } else {
+                    // 普通模式逻辑 (保留原有的手势和点击编辑)
+                    let startX = 0, currentX = 0;
+                    div.addEventListener('touchstart', (e) => {
+                        startX = e.touches[0].clientX;
+                        document.querySelectorAll('.record-card.swiped').forEach(el => { if(el!==div) el.classList.remove('swiped'); });
+                    }, {passive: true});
+                    div.addEventListener('touchmove', (e) => { currentX = e.touches[0].clientX; }, {passive: true});
+                    div.addEventListener('touchend', (e) => {
+                        const diff = startX - currentX;
+                        if (diff > 50) div.classList.add('swiped'); 
+                        else if (diff < -50) div.classList.remove('swiped');
+
+                        if (Math.abs(diff) < 10) { 
+                            if(!e.target.closest('.btn-swipe-del')) editRecord(esc(item.id));
+                        }
+                    });
+                }
 
                 div.innerHTML = \`
                     <div class="record-card-content">
@@ -1281,6 +1362,22 @@ async function serveFrontend() {
                         </button>
                     </div>\`;
                 container.appendChild(div);
+            } else {
+                // [新增] 如果节点已存在，更新其选中样式（防止复用时样式不同步）
+                const existingNode = existingNodes.get(i);
+                const item = allRecords[i];
+
+                if (isBatchMode) existingNode.classList.add('batch-mode');
+                else existingNode.classList.remove('batch-mode');
+
+                if (selectedIds.has(item.id)) existingNode.classList.add('selected');
+                else existingNode.classList.remove('selected');
+
+                // 动态切换事件处理有点复杂，重新生成节点通常更简单。
+                // 但为了性能，这里我们假设切换模式时，上方的 toggleBatchMode 里的 renderVirtualList 会触发重绘。
+                // 由于 renderVirtualList 里的 existingNodes 逻辑是跳过已存在的，
+                // 所以我们需要在 toggleBatchMode 里先清空 container innerHTML 强制重绘，或者在这里更新 onclick。
+                // 简单方案：在 toggleBatchMode 中设置 listContainer.innerHTML = '' 并重置 existingNodes 逻辑。
             }
         }
     }
@@ -1325,11 +1422,53 @@ async function serveFrontend() {
         document.getElementById('admDbSize').innerText = s.db_size_est;
         const r2 = await fetch(API+'/admin/users', { headers: getHeaders() });
         const users = await r2.json();
-        const tbody = document.getElementById('adminUserList'); tbody.innerHTML = '';
+        const tbody = document.getElementById('adminUserList');
+        tbody.innerHTML = '';
         users.forEach(u => {
-            const date = new Date(u.created_at).toLocaleDateString();
-            tbody.insertAdjacentHTML('beforeend', \`<tr><td>\${esc(u.username)}</td><td>\${date}</td><td>\${u.rec_count}</td><td><button style="background:#b91c1c;color:#fff;border:none;border-radius:4px;cursor:pointer;" onclick="deleteUser('\${u.uid}')">Del</button></td></tr>\`);
+            const regDate = new Date(u.created_at).toLocaleDateString();
+            // [新增] 格式化最后登录时间
+            let lastLogin = '-';
+            if (u.last_login_attempt) {
+                const ld = new Date(u.last_login_attempt);
+                lastLogin = \`\${ld.getMonth()+1}/\${ld.getDate()} \${ld.getHours()}:\${ld.getMinutes().toString().padStart(2,'0')}\`;
+            }
+            
+            tbody.insertAdjacentHTML('beforeend', \`
+                <tr>
+                    <td>
+                        <div style="font-weight:bold; color:#fff;">\${esc(u.username)}</div>
+                        <div style="font-size:0.7rem; color:#666;">UID: \${u.uid.substring(0,6)}...</div>
+                    </td>
+                    <td>
+                        <div style="font-size:0.8rem;">\${regDate}</div>
+                        <div style="font-size:0.7rem; color:\${u.last_login_attempt?'var(--primary)':'#666'}">\${lastLogin}</div>
+                    </td>
+                    <td style="text-align:center;">\${u.rec_count}</td>
+                    <td>
+                        <div style="display:flex; gap:5px;">
+                            <button style="background:#333; color:#ccc; border:1px solid #444; padding:4px 8px; border-radius:4px; font-size:0.7rem; cursor:pointer;" onclick="adminResetUser('\${u.uid}', '\${esc(u.username)}')">重置</button>
+                            <button style="background:#7f1d1d; color:#fca5a5; border:none; padding:4px 8px; border-radius:4px; font-size:0.7rem; cursor:pointer;" onclick="deleteUser('\${u.uid}')">删除</button>
+                        </div>
+                    </td>
+                </tr>
+            \`);
         });
+    }
+    // [新增] 管理员重置密码
+    async function adminResetUser(uid, name) {
+        const newPass = prompt(\`重置用户 [\${name}] 的密码为:\`);
+        if(!newPass || newPass.length < 5) {
+            if(newPass) alert('密码太短');
+            return;
+        }
+
+        const r = await fetch(API + '/admin/users/reset', {
+            method: 'POST',
+            headers: getHeaders(),
+            body: JSON.stringify({ uid, newPassword: newPass })
+        });
+        const d = await r.json();
+        alert(d.message || d.error);
     }
     async function deleteUser(uid) {
         if(!confirm('Dangerous! Delete user?')) return;
@@ -1360,6 +1499,62 @@ async function serveFrontend() {
                 historyPage++;
             }
         } catch (e) {} finally { historyLoading = false; }
+    }
+    // [新增] 切换批量模式
+    function toggleBatchMode() {
+        isBatchMode = !isBatchMode;
+        const btn = document.getElementById('btnBatchToggle');
+        const bar = document.getElementById('batchBar');
+
+        if (isBatchMode) {
+            btn.style.borderColor = 'var(--primary)';
+            btn.style.color = 'var(--primary)';
+            bar.classList.add('show');
+        } else {
+            btn.style.borderColor = 'rgba(255,255,255,0.2)';
+            btn.style.color = '#aaa';
+            bar.classList.remove('show');
+            selectedIds.clear();
+            updateBatchUI();
+        }
+        document.getElementById('listContainer').innerHTML = '<div class="virtual-spacer" id="vSpacer"></div>';
+        updateVirtualSpacer(); // 恢复高度
+        renderVirtualList(); // 重新生成 DOM
+    }
+
+    // [新增] 选中/取消选中
+    function toggleSelection(id) {
+        if (selectedIds.has(id)) selectedIds.delete(id);
+        else selectedIds.add(id);
+        updateBatchUI();
+        renderVirtualList(); // 更新高亮状态
+    }
+
+    // [新增] 更新UI计数
+    function updateBatchUI() {
+        document.getElementById('batchCount').innerText = selectedIds.size;
+    }
+
+    // [新增] 执行批量删除
+    async function execBatchDelete() {
+        if (selectedIds.size === 0) return;
+        if (!confirm(\`确定要删除选中的 \${selectedIds.size} 条记录吗？\`)) return;
+
+        const ids = Array.from(selectedIds);
+        const r = await fetch(API + '/records/batch', {
+            method: 'DELETE',
+            headers: getHeaders(),
+            body: JSON.stringify({ ids })
+        });
+        const d = await r.json();
+
+        alert(d.message || d.error);
+        if (!d.error) {
+            toggleBatchMode(); // 退出批量模式
+            resetList(); 
+            loadRecords();
+            loadStats();
+        }
     }
 
     // --- Timer ---
