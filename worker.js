@@ -127,6 +127,11 @@ export default {
                   // 传入 ctx 用于 waitUntil 缓存写入
                   response = await getStatistics(request, env, user, ctx);
               }
+              // [新增] 详细统计 (标签/伴侣)
+              else if (path === '/api/statistics/details') {
+                  response = await getDetailedStatistics(request, env, user, ctx);
+              }
+
               else if (path === '/api/leaderboard') {
                   response = await getLeaderboard(env);
               }
@@ -291,25 +296,91 @@ async function getRecords(req, env, user) {
 }
 async function getRecordDetail(url, env, user) {
     const id = url.searchParams.get('id');
-    const r = await env.DB.prepare('SELECT * FROM records WHERE id = ? AND uid = ?').bind(id, user.uid).first();
+    
+    // 并行查询主表和标签表
+    const [r, actsRes] = await Promise.all([
+        env.DB.prepare('SELECT * FROM records WHERE id = ? AND uid = ?').bind(id, user.uid).first(),
+        env.DB.prepare('SELECT act_type FROM record_acts WHERE record_id = ?').bind(id).all()
+    ]);
+
     if (!r) return errorResponse('记录不存在', 404);
-    let extra = {}; try { extra = JSON.parse(r.data_json || '{}'); } catch(e) {}
-    return jsonResponse({ ...r, ...extra, data_json: undefined });
+
+    let extra = {}; 
+    try { extra = JSON.parse(r.data_json || '{}'); } catch(e) {}
+    
+    // 提取标签数组
+    const acts = actsRes.results ? actsRes.results.map(row => row.act_type) : [];
+
+    return jsonResponse({ 
+        ...r, 
+        ...extra, 
+        data_json: undefined,
+        acts: acts // 返回给前端
+    });
+}
+function extractActs(data) {
+    const acts = Array.isArray(data.acts) ? data.acts : [];
+    // 确保 acts 不会被写入 data_json，节省空间
+    if (data.acts) delete data.acts; 
+    return acts;
 }
 async function createRecord(req, env, user) {
   const data = await req.json();
-  const id = generateId();
+  const id = generateId(); // 确保 generateId 已定义
+  const acts = extractActs(data); // 提取标签数组
   const { core, extra } = splitData(data, user.uid, id);
-  await env.DB.prepare(`INSERT INTO records (id, uid, activity_type, datetime, duration, location, mood, satisfaction, orgasm_count, ejaculation_count, data_json, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`).bind(core.id, core.uid, core.activity_type, core.datetime, core.duration, core.location, core.mood, core.satisfaction, core.orgasm_count, core.ejaculation_count, JSON.stringify(extra), new Date().toISOString()).run();
+  
+  // 1. 构建主表插入语句
+  const mainStmt = env.DB.prepare(`
+    INSERT INTO records (id, uid, activity_type, datetime, duration, location, mood, satisfaction, orgasm_count, ejaculation_count, partner_name, sexual_position, stimulation, data_json, created_at) 
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+  `).bind(
+    core.id, core.uid, core.activity_type, core.datetime, core.duration, core.location, core.mood, core.satisfaction, core.orgasm_count, core.ejaculation_count, 
+    extra.partner_name || null, extra.sexual_position || null, extra.stimulation || null, // 显式提取常用字段
+    JSON.stringify(extra), new Date().toISOString()
+  );
+
+  // 2. 构建标签插入语句
+  const actStmts = acts.map(act => 
+      env.DB.prepare('INSERT INTO record_acts (record_id, act_type) VALUES (?, ?)').bind(id, act)
+  );
+
+  // 3. 批量执行
+  await env.DB.batch([mainStmt, ...actStmts]);
+  
   return jsonResponse({ message: '创建成功', id });
 }
 async function updateRecord(req, env, user) {
   const data = await req.json();
   if (!data.id) return errorResponse('缺少ID');
+  
   const existing = await env.DB.prepare('SELECT id FROM records WHERE id = ? AND uid = ?').bind(data.id, user.uid).first();
   if (!existing) return errorResponse('无权修改', 403);
+
+  const acts = extractActs(data);
   const { core, extra } = splitData(data, user.uid, data.id);
-  await env.DB.prepare(`UPDATE records SET activity_type = ?, datetime = ?, duration = ?, location = ?, mood = ?, satisfaction = ?, orgasm_count = ?, ejaculation_count = ?, data_json = ? WHERE id = ? AND uid = ?`).bind(core.activity_type, core.datetime, core.duration, core.location, core.mood, core.satisfaction, core.orgasm_count, core.ejaculation_count, JSON.stringify(extra), core.id, core.uid).run();
+
+  // 1. 构建主表更新语句
+  const updateStmt = env.DB.prepare(`
+    UPDATE records SET 
+      activity_type = ?, datetime = ?, duration = ?, location = ?, mood = ?, satisfaction = ?, 
+      orgasm_count = ?, ejaculation_count = ?, partner_name = ?, sexual_position = ?, stimulation = ?, data_json = ? 
+    WHERE id = ? AND uid = ?
+  `).bind(
+    core.activity_type, core.datetime, core.duration, core.location, core.mood, core.satisfaction, 
+    core.orgasm_count, core.ejaculation_count, extra.partner_name || null, extra.sexual_position || null, extra.stimulation || null, JSON.stringify(extra), 
+    core.id, core.uid
+  );
+
+  // 2. 标签更新策略：先删后加 (最稳妥的方式)
+  const deleteActsStmt = env.DB.prepare('DELETE FROM record_acts WHERE record_id = ?').bind(core.id);
+  const insertActsStmts = acts.map(act => 
+      env.DB.prepare('INSERT INTO record_acts (record_id, act_type) VALUES (?, ?)').bind(core.id, act)
+  );
+
+  // 3. 批量执行
+  await env.DB.batch([updateStmt, deleteActsStmt, ...insertActsStmts]);
+
   return jsonResponse({ message: '更新成功' });
 }
 async function deleteRecord(url, env, user) {
@@ -504,10 +575,15 @@ async function changePassword(req, env, user) {
     }
 }
 function splitData(data, uid, id) {
-    const coreMap = ['activity_type','datetime','duration','location','mood','satisfaction','orgasm_count','ejaculation_count'];
+    // Schema 中已存在的列，不应放入 JSON
+    const coreMap = ['activity_type','datetime','duration','location','mood','satisfaction','orgasm_count','ejaculation_count','partner_name','sexual_position','stimulation'];
     const core = { uid, id, duration:0, satisfaction:0, orgasm_count:0, ejaculation_count:0 };
     const extra = {};
-    for (let k in data) { if (coreMap.includes(k)) core[k] = data[k]; else if (k !== 'id' && k !== 'uid' && k !== 'created_at') extra[k] = data[k]; }
+    for (let k in data) { 
+        if (coreMap.includes(k)) core[k] = data[k]; 
+        else if (k !== 'id' && k !== 'uid' && k !== 'created_at' && k !== 'acts') extra[k] = data[k]; 
+    }
+    // 确保数字字段类型正确
     ['duration','satisfaction','orgasm_count','ejaculation_count'].forEach(k => core[k] = parseInt(core[k]) || 0);
     return { core, extra };
 }
@@ -574,6 +650,63 @@ async function batchDeleteRecords(req, env, user) {
     } catch (e) {
         return errorResponse('批量删除失败');
     }
+}
+async function getDetailedStatistics(req, env, user, ctx) {
+    // 缓存策略 (可选，建议缓存 1-5 分钟)
+    const cacheUrl = new URL(req.url);
+    const cacheKey = new Request(cacheUrl.toString(), req);
+    const cache = caches.default;
+    let response = await cache.match(cacheKey);
+    if (response) return response;
+
+    // 1. 标签云统计 (Tag Cloud)
+    // 关联 users 表是为了确保只查当前用户 (虽然 record_acts 有 record_id，但为了安全最好 JOIN 检查 uid，或者依赖 record_id 的唯一性)
+    // 这里采用 JOIN records 表来过滤 uid
+    const tagsSql = `
+        SELECT ra.act_type, count(*) as count 
+        FROM record_acts ra
+        JOIN records r ON ra.record_id = r.id
+        WHERE r.uid = ?
+        GROUP BY ra.act_type 
+        ORDER BY count DESC 
+        LIMIT 50
+    `;
+
+    // 2. 伴侣统计 (Partner Stats)
+    const partnerSql = `
+        SELECT partner_name, count(*) as count, avg(satisfaction) as avg_score
+        FROM records 
+        WHERE uid = ? AND activity_type = 'intercourse' AND partner_name IS NOT NULL AND partner_name != ''
+        GROUP BY partner_name 
+        ORDER BY count DESC 
+        LIMIT 20
+    `;
+    
+    // 3. 体位统计 (Position Stats) - 顺手加上
+    const posSql = `
+        SELECT sexual_position, count(*) as count
+        FROM records
+        WHERE uid = ? AND activity_type = 'intercourse' AND sexual_position IS NOT NULL
+        GROUP BY sexual_position
+        ORDER BY count DESC
+    `;
+
+    const [tagsRes, partnerRes, posRes] = await Promise.all([
+        env.DB.prepare(tagsSql).bind(user.uid).all(),
+        env.DB.prepare(partnerSql).bind(user.uid).all(),
+        env.DB.prepare(posSql).bind(user.uid).all()
+    ]);
+
+    const data = {
+        tags: tagsRes.results || [],
+        partners: partnerRes.results || [],
+        positions: posRes.results || []
+    };
+
+    response = jsonResponse(data);
+    response.headers.set('Cache-Control', 'public, max-age=300'); // 缓存 5 分钟
+    ctx.waitUntil(cache.put(cacheKey, response.clone()));
+    return response;
 }
 async function signJwt(payload, secret) { const h = b64url(JSON.stringify({ alg: 'HS256', typ: 'JWT' })); const b = b64url(JSON.stringify({ ...payload, exp: Math.floor(Date.now()/1000)+604800 })); const k = await crypto.subtle.importKey('raw', new TextEncoder().encode(secret), { name: 'HMAC', hash: 'SHA-256' }, false, ['sign']); const s = await crypto.subtle.sign('HMAC', k, new TextEncoder().encode(`${h}.${b}`)); return `${h}.${b}.${b64url(s)}`; }
 async function verifyJwt(token, secret) { const [h, b, s] = token.split('.'); const k = await crypto.subtle.importKey('raw', new TextEncoder().encode(secret), { name: 'HMAC', hash: 'SHA-256' }, false, ['verify']); if (!await crypto.subtle.verify('HMAC', k, b64urlDecode(s), new TextEncoder().encode(`${h}.${b}`))) throw new Error('Invalid'); const p = JSON.parse(new TextDecoder().decode(b64urlDecode(b))); if (p.exp < Date.now()/1000) throw new Error('Expired'); return p; }
