@@ -30,25 +30,23 @@ function generateId() { return crypto.randomUUID().split('-')[0]; } // 使用短
 export default {
   async fetch(request, env, ctx) {
     // 1. 初始化请求上下文
-    const reqId = generateReqId(); // 生成唯一请求ID用于全链路追踪
+    const reqId = generateReqId();
     const startTime = Date.now();
     const url = new URL(request.url);
     const path = url.pathname;
     const clientIP = request.headers.get('cf-connecting-ip') || 'unknown';
     const method = request.method;
 
-    // 2. 记录请求入口日志 (忽略 OPTIONS 预检请求以减少噪音)
+    // 2. 记录请求入口 (忽略 OPTIONS)
     if (method !== 'OPTIONS') { 
-        log(reqId, 'INFO', `Incoming Request: ${method} ${path}`, { ip: clientIP, ua: request.headers.get('user-agent') });
+        log(reqId, 'INFO', `Incoming Request: ${method} ${path}`, { ip: clientIP });
     }
 
-    // 3. 处理 CORS 预检
+    // 3. CORS 预检
     if (method === 'OPTIONS') return new Response(null, { headers: CORS_HEADERS });
 
     let response;
     try {
-      // 4. 路由分发
-      
       // ============================
       // A. 公开/静态资源
       // ============================
@@ -57,11 +55,10 @@ export default {
       }
       
       // ============================
-      // B. 管理员接口 (需要特殊 Header 验证)
+      // B. 管理员接口 (Header 验证)
       // ============================
       else if (path.startsWith('/api/admin')) {
           log(reqId, 'WARN', `Admin Access Attempt`, { path }); 
-          // handleAdmin 内部会处理 /api/admin/users/reset 等新路由
           response = await handleAdmin(request, env, reqId);
       }
 
@@ -83,82 +80,83 @@ export default {
           const user = await verifyAuth(request, env);
           
           if (!user) {
-              // 记录未授权访问尝试
               log(reqId, 'WARN', `Unauthorized Access`, { path, ip: clientIP });
               response = errorResponse('Unauthorized', 401);
           } else {
-              // 记录具体用户操作 (仅记录动作元数据，不记录敏感 payload)
+              // 记录用户操作
               if (method !== 'GET') {
-                  log(reqId, 'INFO', `User Action: ${user.username} (${user.uid})`, { method, path });
-              }
-              
-              // --- 用户路由表 ---
-              
-              // 1. 账户安全
-              if (path === '/api/auth/password') {
-                  response = await changePassword(request, env, user);
-              }
-              
-              // 2. 核心记录 CRUD
-              else if (path === '/api/records') {
-                if (method === 'GET') response = await getRecords(request, env, user);
-                else if (method === 'POST') response = await createRecord(request, env, user);
-                else if (method === 'PUT') response = await updateRecord(request, env, user);
-                else if (method === 'DELETE') response = await deleteCycle(url, env, user);
-              }
-              else if (path === '/api/analysis/cycle-trends') {
-                  // 生理周期与性欲关联分析
-                  response = await getCycleTrends(request, env, user);
-              }
-              else if (path === '/api/visualization/galaxy') {
-                  // 3D 星球专用数据 (全量轻量级数据)
-                  response = await getGalaxyData(request, env, user);
+                  log(reqId, 'INFO', `User Action: ${user.username}`, { method, path });
               }
 
-              // 3. [新增] 批量操作接口
-              else if (path === '/api/records/batch') {
-                if (method === 'DELETE') response = await batchDeleteRecords(request, env, user);
-                else response = errorResponse('Method Not Allowed', 405);
-              }
+              // --- 路由表 ---
 
-              // 4. 记录详情与搜索增强
+              // 1. 核心记录 (CRUD)
+              if (path === '/api/records') {
+                  if (method === 'GET') response = await getRecords(request, env, user);
+                  else if (method === 'POST') response = await createRecord(request, env, user);
+                  else if (method === 'PUT') response = await updateRecord(request, env, user);
+                  else if (method === 'DELETE') response = await deleteRecord(url, env, user);
+              }
               else if (path === '/api/records/detail') {
                   response = await getRecordDetail(url, env, user);
               }
-              else if (path === '/api/search/suggest') {
-                  // [新增] 智能搜索建议
-                  response = await getSearchSuggestions(url, env, user);
+              else if (path === '/api/records/batch') {
+                  // 批量操作
+                  if (method === 'DELETE') response = await batchDeleteRecords(request, env, user);
+                  else response = errorResponse('Method Not Allowed', 405);
               }
 
-              // 5. 统计与榜单 (带缓存)
+              // 2. 统计与分析
               else if (path === '/api/statistics') {
-                  // 传入 ctx 用于 waitUntil 缓存写入
                   response = await getStatistics(request, env, user, ctx);
               }
-              // [新增] 详细统计 (标签/伴侣)
               else if (path === '/api/statistics/details') {
+                  // [新增] 标签云与伴侣统计
                   response = await getDetailedStatistics(request, env, user, ctx);
               }
-
               else if (path === '/api/leaderboard') {
                   response = await getLeaderboard(env);
               }
+
+              // 3. 生理周期 (Health) - [修复 404 问题关键点]
+              else if (path === '/api/cycles') {
+                  if (method === 'GET') response = await getCycles(request, env, user);
+                  else if (method === 'POST') response = await addCycle(request, env, user);
+                  else if (method === 'DELETE') response = await deleteCycle(url, env, user);
+              }
+              else if (path === '/api/analysis/cycle-trends') {
+                  response = await getCycleTrends(request, env, user);
+              }
+
+              // 4. 可视化 (Galaxy) - [修复 404 问题关键点]
+              else if (path === '/api/visualization/galaxy') {
+                  response = await getGalaxyData(request, env, user);
+              }
+
+              // 5. 工具/搜索/设置
+              else if (path === '/api/search/suggest') {
+                  response = await getSearchSuggestions(url, env, user);
+              }
+              else if (path === '/api/auth/password') {
+                  response = await changePassword(request, env, user);
+              }
               
-              // 6. 404
+              // 6. 404 Fallback
               else {
                   response = new Response('Not found', { status: 404, headers: CORS_HEADERS });
               }
           }
       }
     } catch (error) {
-        // 5. 全局错误捕获 (防止 Worker 崩溃并泄露堆栈)
         log(reqId, 'ERROR', `Unhandled Exception`, { error: error.message, stack: error.stack });
         response = errorResponse('Internal Server Error', 500);
     } finally {
-        // 6. 请求结束日志 (包含耗时统计)
         if (method !== 'OPTIONS' && response) {
             const duration = Date.now() - startTime;
-            log(reqId, 'INFO', `Request Completed`, { status: response.status, duration: `${duration}ms` });
+            // 避免日志过于频繁
+            if (path !== '/api/records' || method !== 'GET') {
+                 log(reqId, 'INFO', `Request Completed`, { status: response.status, duration: `${duration}ms` });
+            }
         }
     }
     
@@ -838,7 +836,6 @@ async function serveFrontend() {
   <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+SC:wght@300;400;500;700&family=Cinzel:wght@400;700&display=swap" rel="stylesheet">
   <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
-  <!-- 引入 OrbitControls 用于 3D 交互 -->
   <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
   <style>
     :root {
@@ -1006,12 +1003,23 @@ async function serveFrontend() {
 
     /* [新增] 批量操作相关样式 */
     .batch-bar {
-        position: fixed; bottom: 90px; left: 50%; transform: translateX(-50%) translateY(100px);
-        width: 90%; max-width: 400px; background: rgba(20,20,25,0.95);
-        backdrop-filter: blur(10px); border: 1px solid rgba(255,255,255,0.15);
-        border-radius: 50px; padding: 12px 25px;
-        display: flex; justify-content: space-between; align-items: center;
-        z-index: 99; transition: transform 0.3s cubic-bezier(0.18, 0.89, 0.32, 1.28);
+        position: fixed; 
+        bottom: 90px; 
+        left: 50%; 
+        /* 关键修改：默认向下位移 200% 确保完全隐藏 */
+        transform: translateX(-50%) translateY(200%);
+        width: 90%; 
+        max-width: 400px; 
+        background: rgba(20,20,25,0.95);
+        backdrop-filter: blur(10px); 
+        border: 1px solid rgba(255,255,255,0.15);
+        border-radius: 50px; 
+        padding: 12px 25px;
+        display: flex; 
+        justify-content: space-between; 
+        align-items: center;
+        z-index: 99; 
+        transition: transform 0.3s cubic-bezier(0.18, 0.89, 0.32, 1.28);
         box-shadow: 0 10px 40px rgba(0,0,0,0.5);
     }
     .batch-bar.show { transform: translateX(-50%) translateY(0); }
@@ -1032,11 +1040,18 @@ async function serveFrontend() {
     .custom-chk::after { content:'✓'; color:#fff; font-size:0.9rem; display:none; }
     .record-card.selected .custom-chk::after { display:block; }
 
-    /* 3D 视图容器 */
+    /* 修改 #galaxy-canvas 样式 */
     #galaxy-canvas { 
         position: fixed; top: 0; left: 0; width: 100%; height: 100%; 
-        z-index: 50; /* 在背景之上，但在 UI 之下 */
-        opacity: 0; pointer-events: none; transition: opacity 1s;
+        z-index: 50; 
+        opacity: 0; 
+        pointer-events: none; 
+        transition: opacity 1s;
+    }
+    /* 新增 .visible 类用于控制显示 */
+    #galaxy-canvas.visible {
+        opacity: 1; 
+        pointer-events: auto;
     }
     #view-galaxy.active ~ #galaxy-canvas {
         opacity: 1; pointer-events: auto;
@@ -2177,10 +2192,16 @@ async function serveFrontend() {
         initGalaxy();
         loadGalaxyData();
         animateGalaxy();
+        // 强制显示 Canvas
+        const canvas = document.getElementById('galaxy-canvas');
+        if(canvas) canvas.classList.add('visible');
     }
 
     function stopGalaxy() {
         if(animationId) cancelAnimationFrame(animationId);
+        // 隐藏 Canvas
+        const canvas = document.getElementById('galaxy-canvas');
+        if(canvas) canvas.classList.remove('visible');
     }
     function resetCamera() {
         controls.reset();
