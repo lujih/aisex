@@ -868,23 +868,46 @@ async function serveFrontend() {
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
   <meta name="theme-color" content="#050505">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
   <title>Secret Garden</title>
-  <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+SC:wght@300;400;500;700&family=Cinzel:wght@400;700&display=swap" rel="stylesheet">
-  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+  
+  <!-- 1. 国内极速 CDN (BootCDN) -->
+  <script src="https://cdn.bootcdn.net/ajax/libs/Chart.js/3.9.1/chart.min.js"></script>
+  <script src="https://cdn.bootcdn.net/ajax/libs/three.js/r128/three.min.js"></script>
+  <script src="https://cdn.bootcdn.net/ajax/libs/three.js/r128/examples/js/controls/OrbitControls.js"></script>
   <style>
     :root {
       --bg-deep: #050505;
       --primary: #d946ef; --secondary: #8b5cf6; --accent: #f43f5e;
-      --glass-surface: rgba(25, 25, 30, 0.75); --glass-border: rgba(255, 255, 255, 0.1);
+      --glass-surface: rgba(30, 30, 35, 0.75); --glass-border: rgba(255, 255, 255, 0.08);
       --text-main: #f3f4f6; --text-muted: #9ca3af;
+      /* 安全区域变量 */
+      --safe-bottom: env(safe-area-inset-bottom, 20px);
     }
-    * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; outline: none; }
-    body { margin: 0; background-color: var(--bg-deep); color: var(--text-main); font-family: 'Noto Sans SC', sans-serif; min-height: 100vh; padding-bottom: 95px; overscroll-behavior-y: none; }
     
-    .ambient-bg { position: fixed; top: 0; left: 0; width: 100%; height: 100%; z-index: -2; background: radial-gradient(circle at 10% 20%, #1a0b2e 0%, transparent 40%), radial-gradient(circle at 90% 80%, #2e0b1f 0%, transparent 40%), linear-gradient(to bottom, #0a0a0a, #050505); will-change: transform; }
-    
+    /* 2. 字体优化：使用系统原生字体栈，移除 Google Fonts 请求 */
+    body { 
+        margin: 0; 
+        background-color: var(--bg-deep); 
+        color: var(--text-main); 
+        font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei", "Helvetica Neue", sans-serif; 
+        min-height: 100vh; 
+        /* 底部留出 Dock + 安全区域的高度 */
+        padding-bottom: calc(80px + var(--safe-bottom)); 
+        /* 禁止下拉刷新出的空白背景 */
+        overscroll-behavior-y: none; 
+        /* 优化点击高亮颜色 */
+        -webkit-tap-highlight-color: transparent;
+    }
+
+    /* 装饰性衬线字体 fallback */
+    .serif-font { font-family: "Songti SC", "SimSun", serif; }
+
+    * { box-sizing: border-box; outline: none; }
+
+    .ambient-bg { position: fixed; top: 0; left: 0; width: 100%; height: 100%; z-index: -2; background: radial-gradient(circle at 10% 20%, #1a0b2e 0%, transparent 40%), radial-gradient(circle at 90% 80%, #2e0b1f 0%, transparent 40%), linear-gradient(to bottom, #0a0a0a, #050505); will-change: transform; pointer-events: none; }
+
     /* 核心组件 */
     .glass { background: var(--glass-surface); backdrop-filter: blur(15px); -webkit-backdrop-filter: blur(15px); border: 1px solid var(--glass-border); box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4); }
     .card { border-radius: 16px; padding: 20px; margin-bottom: 15px; position: relative; overflow: hidden; transition: transform 0.2s; }
@@ -935,9 +958,15 @@ async function serveFrontend() {
     
     /* 搜索栏与建议 */
     .search-wrapper { position: relative; flex: 1; z-index: 50; }
-    .search-input { width: 100%; background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.1); color: #fff; padding: 10px 35px 10px 15px; border-radius: 20px; font-size: 0.9rem; transition: 0.3s; }
-    .search-input:focus { background: rgba(255,255,255,0.1); border-color: var(--primary); }
-    .search-clear { position: absolute; right: 10px; top: 50%; transform: translateY(-50%); width: 20px; height: 20px; background: rgba(255,255,255,0.2); border-radius: 50%; color: #000; display: flex; align-items: center; justify-content: center; font-size: 12px; cursor: pointer; opacity: 0; visibility: hidden; transition: 0.2s; }
+    .search-input { 
+        width: 100%; background: rgba(255,255,255,0.08); border: 1px solid rgba(255,255,255,0.1); 
+        color: #fff; padding: 10px 35px 10px 15px; border-radius: 20px; 
+        /* 关键：iOS 默认字体小于16px时输入会放大页面，强制16px解决 */
+        font-size: 16px; 
+        transition: 0.3s; 
+    }
+    .search-input:focus { background: rgba(255,255,255,0.15); border-color: var(--primary); }
+    .search-clear { position: absolute; right: 10px; top: 50%; transform: translateY(-50%); width: 24px; height: 24px; color: #888; display: flex; align-items: center; justify-content: center; font-size: 14px; cursor: pointer; opacity: 0; visibility: hidden; }
     .search-wrapper.has-text .search-clear { opacity: 1; visibility: visible; }
     
     .suggestions-box { 
@@ -945,6 +974,7 @@ async function serveFrontend() {
         background: #1a1a1a; border: 1px solid #333; border-radius: 12px; 
         margin-top: 5px; max-height: 200px; overflow-y: auto; 
         display: none; box-shadow: 0 10px 30px rgba(0,0,0,0.8); 
+        -webkit-overflow-scrolling: touch;
     }
     .suggestions-box.show { display: block; }
     .suggestion-item { padding: 12px 15px; color: #ccc; font-size: 0.9rem; border-bottom: 1px solid #222; cursor: pointer; transition: 0.2s; }
@@ -996,6 +1026,7 @@ async function serveFrontend() {
 
     .dock-nav { position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%); width: 95%; max-width: 480px; height: 60px; background: rgba(20, 20, 25, 0.9); backdrop-filter: blur(20px); -webkit-backdrop-filter: blur(20px); border: 1px solid rgba(255,255,255,0.1); border-radius: 30px; display: flex; justify-content: space-evenly; align-items: center; z-index: 100; box-shadow: 0 10px 30px rgba(0,0,0,0.6); padding: 0 5px; }
     .dock-item { display: flex; flex-direction: column; align-items: center; justify-content: center; color: #666; font-size: 0.65rem; gap: 3px; transition: 0.3s; width: 60px; height: 100%; cursor: pointer; }
+    .dock-item::after { content:''; position:absolute; top:-10px; bottom:-10px; left:0; right:0; }
     .dock-item svg { width: 22px; height: 22px; stroke: currentColor; stroke-width: 2; fill: none; transition: 0.3s; }
     .dock-item.active { color: var(--primary); }
     .dock-item.active svg { transform: translateY(-3px); stroke: var(--primary); }
@@ -1004,9 +1035,18 @@ async function serveFrontend() {
     .dock-item.timer-btn.active { color: #fff; }
     .dock-item.timer-btn:active svg { transform: scale(0.9); }
 
+    /* 弹窗适配 */
     .modal-overlay { position: fixed; top: 0; left: 0; width: 100%; height: 100%; z-index: 200; background: rgba(0,0,0,0.8); backdrop-filter: blur(5px); display: none; align-items: flex-end; justify-content: center; opacity: 0; transition: opacity 0.3s; }
     .modal-overlay.show { opacity: 1; }
-    .modal-content { width: 100%; max-width: 600px; background: #111; border-radius: 24px 24px 0 0; padding: 25px 20px 40px; max-height: 90vh; overflow-y: auto; border-top: 1px solid #333; transform: translateY(100%); transition: transform 0.3s cubic-bezier(0.16, 1, 0.3, 1); }
+    .modal-content { 
+        width: 100%; max-width: 600px; background: #18181b; 
+        border-radius: 24px 24px 0 0; 
+        /* 底部增加安全距离 */
+        padding: 25px 20px calc(25px + var(--safe-bottom)); 
+        max-height: 90vh; overflow-y: auto; 
+        border-top: 1px solid #333; transform: translateY(100%); transition: transform 0.3s cubic-bezier(0.16, 1, 0.3, 1); 
+        -webkit-overflow-scrolling: touch;
+    }
     .modal-overlay.show .modal-content { transform: translateY(0); }
 
     .stats-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px; margin-bottom: 20px; }
@@ -1041,7 +1081,7 @@ async function serveFrontend() {
     /* --- 修复后的 Batch Bar 样式 --- */
     .batch-bar {
         position: fixed; 
-        bottom: 90px; 
+        bottom: calc(85px + var(--safe-bottom)); /* 适配 Dock 高度 */
         left: 50%; 
         width: 90%; 
         max-width: 400px; 
