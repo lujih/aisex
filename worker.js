@@ -1287,7 +1287,7 @@ async function serveFrontend() {
        
        <div class="glass card" onclick="openAbout()" style="cursor:pointer; display:flex; justify-content:space-between; align-items:center;">
            <span>关于 Secret Garden</span>
-           <span style="color:#666; font-size:0.8rem;">v7.7 ></span>
+           <span style="color:#666; font-size:0.8rem;">v8.0 ></span>
        </div>
 
        <button class="btn btn-outline" style="border-style:dashed; color:#666; margin-top:10px;" onclick="switchView('admin', null)">管理后台</button>
@@ -1511,7 +1511,7 @@ async function serveFrontend() {
                   <span class="tech-item">FTS5 Search</span>
               </div>
   
-              <button class="btn btn-outline" onclick="window.open('https://github.com/your-repo')">
+              <button class="btn btn-outline" onclick="window.open('https://github.com/lujih/aisex')">
                   <svg viewBox="0 0 24 24" width="16" height="16" stroke="currentColor" fill="none" style="vertical-align:middle; margin-right:5px;"><path d="M9 19c-5 1.5-5-2.5-7-3m14 6v-3.87a3.37 3.37 0 0 0-.94-2.61c3.14-.35 6.44-1.54 6.44-7A5.44 5.44 0 0 0 20 4.77 5.07 5.07 0 0 0 19.91 1S18.73.65 16 2.48a13.38 13.38 0 0 0-7 0C6.27.65 5.09 1 5.09 1A5.07 5.07 0 0 0 5 4.77a5.44 5.44 0 0 0-1.5 3.78c0 5.42 3.3 6.61 6.44 7A3.37 3.37 0 0 0 9 18.13V22"></path></svg>
                   Project Source
               </button>
@@ -1682,26 +1682,26 @@ async function serveFrontend() {
         try {
             const r = await fetch(API+'/statistics?range='+range, { headers: getHeaders() });
             const s = await r.json();
-            
+
             if(s.error === 'Unauthorized') return logout();
-            
+
             document.getElementById('sTotal').innerText = s.total_records;
-            
+
             // --- 格式化平均时长 ---
             // s.avg_duration 现在是秒数
             document.getElementById('sDuration').innerText = fmtTimeShort(Math.round(s.avg_duration || 0));
-            
+
             document.getElementById('sScore').innerText = s.avg_satisfaction;
             document.getElementById('sOrgasm').innerText = s.total_orgasms;
-            
+
             // 渲染热力图
             renderHeatmap(s.daily_activity || {});
-    
+
             // 更新图表 (Chart.js)
             if(chart1) chart1.destroy(); 
             if(chart2) chart2.destroy(); 
             if(chart3) chart3.destroy();
-            
+
             // 饼图
             const ctx1 = document.getElementById('chartType').getContext('2d');
             chart1 = new Chart(ctx1, { 
@@ -1709,7 +1709,7 @@ async function serveFrontend() {
                 data: { labels: ['自慰','性爱'], datasets: [{ data: [s.masturbation, s.intercourse], backgroundColor: ['#d946ef', '#f43f5e'], borderWidth: 0 }] }, 
                 options: { maintainAspectRatio:false, cutout: '75%', plugins: { legend: { display: false } } } 
             });
-            
+
             // 柱状图 (月度)
             const ctx2 = document.getElementById('chartHistory').getContext('2d');
             const labels = Object.keys(s.records_by_month).sort();
@@ -1718,13 +1718,13 @@ async function serveFrontend() {
                 data: { labels: labels.map(l=>l.slice(5)), datasets: [{ label: '次', data: labels.map(k => s.records_by_month[k]), backgroundColor: '#8b5cf6', borderRadius: 4 }] }, 
                 options: { maintainAspectRatio:false, scales: { x: { grid: {display:false} }, y: { display:false } }, plugins: { legend: {display:false} } } 
             });
-            
+
             // 曲线图 (时段)
             const ctx3 = document.getElementById('chartHours').getContext('2d');
             const gradient = ctx3.createLinearGradient(0, 0, 0, 200);
             gradient.addColorStop(0, 'rgba(217, 70, 239, 0.5)');
             gradient.addColorStop(1, 'rgba(217, 70, 239, 0)');
-    
+
             chart3 = new Chart(ctx3, {
                 type: 'line',
                 data: {
@@ -1737,7 +1737,7 @@ async function serveFrontend() {
                     scales: { x: { grid: { display: false, color:'#333' }, ticks: { color: '#666', maxTicksLimit: 8 } }, y: { display: false } }
                 }
             });
-    
+
             if(currentPage===1) loadRecords();
         } catch(e) {
             console.error("Stats Error:", e);
