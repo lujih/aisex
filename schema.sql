@@ -66,6 +66,19 @@ CREATE VIRTUAL TABLE records_fts USING fts5(
 );
 
 -- ============================================
+-- 5. 生理周期表 (新功能)
+-- ============================================
+CREATE TABLE cycles (
+    id TEXT PRIMARY KEY,
+    uid TEXT NOT NULL,
+    start_date TEXT NOT NULL, -- 月经开始日期 (YYYY-MM-DD)
+    end_date TEXT,            -- 结束日期 (可选，用于计算持续时长)
+    created_at TEXT DEFAULT (datetime('now')),
+    FOREIGN KEY (uid) REFERENCES users(uid) ON DELETE CASCADE
+);
+
+
+-- ============================================
 -- 索引优化
 -- ============================================
 
@@ -85,6 +98,9 @@ CREATE INDEX idx_record_acts_type ON record_acts(act_type);
 
 -- 用户创建时间索引
 CREATE INDEX idx_users_created ON users(created_at DESC);
+
+-- 索引：按日期排序方便计算周期位置
+CREATE INDEX idx_cycles_date ON cycles(uid, start_date DESC);
 
 -- ============================================
 -- 触发器系统

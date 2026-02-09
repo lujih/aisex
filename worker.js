@@ -104,9 +104,17 @@ export default {
                 if (method === 'GET') response = await getRecords(request, env, user);
                 else if (method === 'POST') response = await createRecord(request, env, user);
                 else if (method === 'PUT') response = await updateRecord(request, env, user);
-                else if (method === 'DELETE') response = await deleteRecord(url, env, user); // 单条删除
-              } 
-              
+                else if (method === 'DELETE') response = await deleteCycle(url, env, user);
+              }
+              else if (path === '/api/analysis/cycle-trends') {
+                  // 生理周期与性欲关联分析
+                  response = await getCycleTrends(request, env, user);
+              }
+              else if (path === '/api/visualization/galaxy') {
+                  // 3D 星球专用数据 (全量轻量级数据)
+                  response = await getGalaxyData(request, env, user);
+              }
+
               // 3. [新增] 批量操作接口
               else if (path === '/api/records/batch') {
                 if (method === 'DELETE') response = await batchDeleteRecords(request, env, user);
@@ -708,6 +716,106 @@ async function getDetailedStatistics(req, env, user, ctx) {
     ctx.waitUntil(cache.put(cacheKey, response.clone()));
     return response;
 }
+// --- 生理周期逻辑 ---
+async function getCycles(req, env, user) {
+    const { results } = await env.DB.prepare('SELECT * FROM cycles WHERE uid = ? ORDER BY start_date DESC LIMIT 24').bind(user.uid).all();
+    return jsonResponse(results);
+}
+
+async function addCycle(req, env, user) {
+    const { start_date } = await req.json();
+    const id = generateId();
+    await env.DB.prepare('INSERT INTO cycles (id, uid, start_date) VALUES (?, ?, ?)').bind(id, user.uid, start_date).run();
+    return jsonResponse({ id, message: '周期记录已添加' });
+}
+
+async function deleteCycle(url, env, user) {
+    const id = url.searchParams.get('id');
+    await env.DB.prepare('DELETE FROM cycles WHERE id = ? AND uid = ?').bind(id, user.uid).run();
+    return jsonResponse({ message: '删除成功' });
+}
+
+// --- 核心算法：周期趋势分析 ---
+async function getCycleTrends(req, env, user) {
+    // 1. 获取最近一年的记录和周期数据
+    const [recRes, cycRes] = await Promise.all([
+        env.DB.prepare("SELECT datetime, satisfaction, activity_type FROM records WHERE uid = ? AND datetime > date('now', '-1 year')").all(),
+        env.DB.prepare("SELECT start_date FROM cycles WHERE uid = ? AND start_date > date('now', '-1 year') ORDER BY start_date ASC").all()
+    ]);
+
+    const records = recRes.results;
+    const cycles = cycRes.results;
+
+    if (cycles.length === 0) return jsonResponse({ error: 'no_data' });
+
+    // 2. 将记录映射到周期日 (Cycle Day 1-28)
+    const cycleStats = new Array(30).fill(0).map(() => ({ count: 0, totalScore: 0 })); 
+    
+    records.forEach(r => {
+        const rDate = new Date(r.datetime);
+        // 找到该记录之前的最近一次月经开始日
+        let lastCycle = null;
+        for (let i = cycles.length - 1; i >= 0; i--) {
+            const cDate = new Date(cycles[i].start_date);
+            if (cDate <= rDate) {
+                lastCycle = cDate;
+                break;
+            }
+        }
+        
+        if (lastCycle) {
+            // 计算是周期的第几天 (Day 1 是月经第一天)
+            const diffTime = Math.abs(rDate - lastCycle);
+            const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24)); 
+            
+            // 只统计标准周期内的数据 (例如前30天)
+            if (diffDays > 0 && diffDays <= 29) {
+                cycleStats[diffDays].count++;
+                cycleStats[diffDays].totalScore += (r.satisfaction || 5);
+            }
+        }
+    });
+
+    // 3. 预测逻辑 (简化版：假设周期为28天)
+    // 寻找 count 最高的区域作为"高欲望期"
+    const analyzed = cycleStats.map((d, i) => ({
+        day: i,
+        avg_score: d.count ? (d.totalScore / d.count).toFixed(1) : 0,
+        frequency: d.count
+    })).slice(1); // 去掉索引0
+
+    return jsonResponse({ trends: analyzed });
+}
+
+// --- 3D 可视化数据 ---
+async function getGalaxyData(req, env, user) {
+    // 仅查询必要的字段以减小体积，按时间倒序
+    const { results } = await env.DB.prepare(`
+        SELECT id, datetime, activity_type, satisfaction, duration, mood 
+        FROM records 
+        WHERE uid = ? 
+        ORDER BY datetime DESC
+    `).bind(user.uid).all();
+    
+    // 简化数据结构
+    const points = results.map(r => {
+        const d = new Date(r.datetime);
+        return [
+            // 0: 时间戳 (用于 Z 轴)
+            d.getTime(),
+            // 1: 一天中的分钟数 (0-1440) (用于 角度/X/Y)
+            d.getHours() * 60 + d.getMinutes(),
+            // 2: 满意度 (用于 大小/亮度)
+            r.satisfaction,
+            // 3: 类型 (0=masturbation, 1=intercourse) (用于 颜色)
+            r.activity_type === 'intercourse' ? 1 : 0,
+            // 4: 持续时间 (可选特效)
+            r.duration
+        ];
+    });
+    
+    return jsonResponse(points);
+}
 async function signJwt(payload, secret) { const h = b64url(JSON.stringify({ alg: 'HS256', typ: 'JWT' })); const b = b64url(JSON.stringify({ ...payload, exp: Math.floor(Date.now()/1000)+604800 })); const k = await crypto.subtle.importKey('raw', new TextEncoder().encode(secret), { name: 'HMAC', hash: 'SHA-256' }, false, ['sign']); const s = await crypto.subtle.sign('HMAC', k, new TextEncoder().encode(`${h}.${b}`)); return `${h}.${b}.${b64url(s)}`; }
 async function verifyJwt(token, secret) { const [h, b, s] = token.split('.'); const k = await crypto.subtle.importKey('raw', new TextEncoder().encode(secret), { name: 'HMAC', hash: 'SHA-256' }, false, ['verify']); if (!await crypto.subtle.verify('HMAC', k, b64urlDecode(s), new TextEncoder().encode(`${h}.${b}`))) throw new Error('Invalid'); const p = JSON.parse(new TextDecoder().decode(b64urlDecode(b))); if (p.exp < Date.now()/1000) throw new Error('Expired'); return p; }
 function b64url(s) { return (typeof s==='string'?btoa(s):btoa(String.fromCharCode(...new Uint8Array(s)))).replace(/\+/g,'-').replace(/\//g,'_').replace(/=+$/,''); }
@@ -729,6 +837,9 @@ async function serveFrontend() {
   <title>Secret Garden</title>
   <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+SC:wght@300;400;500;700&family=Cinzel:wght@400;700&display=swap" rel="stylesheet">
   <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+  <!-- 引入 OrbitControls 用于 3D 交互 -->
+  <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
   <style>
     :root {
       --bg-deep: #050505;
@@ -920,6 +1031,29 @@ async function serveFrontend() {
     .record-card.selected .custom-chk { background: var(--primary); border-color: var(--primary); }
     .custom-chk::after { content:'✓'; color:#fff; font-size:0.9rem; display:none; }
     .record-card.selected .custom-chk::after { display:block; }
+
+    /* 3D 视图容器 */
+    #galaxy-canvas { 
+        position: fixed; top: 0; left: 0; width: 100%; height: 100%; 
+        z-index: 50; /* 在背景之上，但在 UI 之下 */
+        opacity: 0; pointer-events: none; transition: opacity 1s;
+    }
+    #view-galaxy.active ~ #galaxy-canvas {
+        opacity: 1; pointer-events: auto;
+    }
+    
+    /* 周期分析卡片 */
+    .cycle-chart-bar {
+        display: flex; align-items: flex-end; gap: 2px; height: 100px; 
+        border-bottom: 1px solid #333; padding-bottom: 5px;
+    }
+    .c-bar { 
+        flex: 1; background: #333; border-radius: 2px 2px 0 0; 
+        position: relative; transition: 0.2s;
+    }
+    .c-bar:hover { background: var(--primary); }
+    .c-bar.high-desire { background: linear-gradient(to top, var(--primary), var(--accent)); box-shadow: 0 0 10px var(--primary); }
+    .phase-label { font-size: 0.6rem; color: #666; text-align: center; margin-top: 5px; }
   </style>
 </head>
 <body>
@@ -1056,6 +1190,48 @@ async function serveFrontend() {
        <button class="btn" style="background:#333; color:#aaa; margin-top:20px;" onclick="logout()">退出登录</button>
     </div>
 
+    <!-- 视图：欲望星球 (3D) -->
+    <div id="view-galaxy" class="view-section">
+        <div style="position: absolute; top: 20px; left: 20px; z-index: 60; pointer-events: none;">
+            <h2 style="font-family:'Cinzel'; margin:0; text-shadow:0 0 10px #000;">Desire Galaxy</h2>
+            <p style="font-size:0.8rem; color:#aaa;">拖动旋转 · 滚轮缩放 · 每一颗星都是一次回忆</p>
+        </div>
+        <!-- 3D Canvas 实际上是 fixed 的，这里只作为占位或控制层 -->
+        <div style="position:absolute; bottom:100px; left:50%; transform:translateX(-50%); z-index:60; text-align:center;">
+             <button class="btn" style="width:auto; padding:8px 20px; background:rgba(255,255,255,0.1); backdrop-filter:blur(5px);" onclick="resetCamera()">重置视角</button>
+        </div>
+    </div>
+
+    <!-- 视图：生理周期 (Health) -->
+    <div id="view-health" class="view-section">
+        <h3 style="font-family:'Cinzel';">Bio-Rhythm</h3>
+
+        <div class="glass card">
+            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:15px;">
+                 <span>记录月经开始日</span>
+                 <input type="date" id="cycleStartPicker" style="width:auto; padding:5px;">
+                 <button class="btn" style="width:auto; padding:5px 15px;" onclick="addCycleRecord()">添加</button>
+            </div>
+            <div id="cycleList" style="max-height:100px; overflow-y:auto; font-size:0.8rem; color:#888;"></div>
+        </div>
+
+        <div class="glass card" id="cycleAnalysisBox">
+            <h4>周期欲望趋势 (Desire Trends)</h4>
+            <p style="font-size:0.8rem; color:#aaa; margin-bottom:10px;">基于历史数据分析你在周期第几天的活跃度。</p>
+            <div class="cycle-chart-bar" id="cycleChart">
+                <!-- JS 生成柱状图 -->
+            </div>
+            <div style="display:flex; justify-content:space-between; font-size:0.7rem; color:#555; margin-top:5px;">
+                <span>Day 1 (经期)</span>
+                <span>Day 14 (排卵)</span>
+                <span>Day 28</span>
+            </div>
+            <div id="cyclePrediction" style="margin-top:15px; padding:10px; background:rgba(217,70,239,0.1); border-radius:8px; font-size:0.9rem; display:none;">
+                🔮 预测：你的下一个<b>高欲望期</b>大约在 <span id="predDate" style="color:#fff; font-weight:bold;"></span>
+            </div>
+        </div>
+    </div>
+
     <!-- 视图：管理后台 -->
     <div id="view-admin" class="view-section">
         <h3 style="font-family:'Cinzel'; color:var(--accent);">Admin Dashboard</h3>
@@ -1093,9 +1269,17 @@ async function serveFrontend() {
       <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"></circle><polyline points="12 6 12 12 16 14"></polyline></svg>
       <span>历史</span>
     </div>
+    <div class="dock-item" onclick="switchView('health', this)">
+        <svg viewBox="0 0 24 24"><path d="M22 12h-4l-3 9L9 3l-3 9H2"></path></svg>
+        <span>健康</span>
+    </div>
     <div class="dock-item timer-btn" onclick="startTimer()">
       <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"></circle><polyline points="12 6 12 12"></polyline><line x1="12" y1="6" x2="12" y2="2"></line></svg>
       <span>计时</span>
+    </div>
+        <div class="dock-item" onclick="switchView('galaxy', this)">
+        <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"></circle><path d="M2 12h20"></path><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"></path></svg>
+        <span>星系</span>
     </div>
     <div class="dock-item" onclick="switchView('leaderboard', this)">
       <svg viewBox="0 0 24 24"><path d="M6 9H4.5a2.5 2.5 0 0 1 0-5H6"></path><path d="M18 9h1.5a2.5 2.5 0 0 0 0-5H18"></path><path d="M4 22h16"></path></svg>
@@ -1849,6 +2033,251 @@ async function serveFrontend() {
     function setupInfiniteScroll() { 
         const obs = new IntersectionObserver(e=>{if(e[0].isIntersecting) loadRecords()}); obs.observe(document.getElementById('scrollSentinel'));
         const obsH = new IntersectionObserver(e=>{if(e[0].isIntersecting) loadHistory()}); obsH.observe(document.getElementById('historySentinel'));
+    }
+    
+    // ==========================================
+    // 3D 欲望星球 (Three.js Implementation)
+    // ==========================================
+    let scene, camera, renderer, particles, controls;
+    let animationId;
+
+    function initGalaxy() {
+        if(scene) return; // 只初始化一次
+
+        const canvasContainer = document.createElement('div');
+        canvasContainer.id = 'galaxy-canvas';
+        document.body.appendChild(canvasContainer);
+
+        scene = new THREE.Scene();
+        // 增加一点环境雾效
+        scene.fog = new THREE.FogExp2(0x050505, 0.002);
+
+        camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 2000);
+        camera.position.set(0, 100, 300); // 初始视角
+
+        renderer = new THREE.WebGLRenderer({ alpha: true, antialias: true });
+        renderer.setSize(window.innerWidth, window.innerHeight);
+        renderer.setPixelRatio(window.devicePixelRatio);
+        canvasContainer.appendChild(renderer.domElement);
+
+        controls = new THREE.OrbitControls(camera, renderer.domElement);
+        controls.enableDamping = true;
+        controls.dampingFactor = 0.05;
+        controls.autoRotate = true;
+        controls.autoRotateSpeed = 0.5;
+
+        // 窗口大小调整
+        window.addEventListener('resize', () => {
+            camera.aspect = window.innerWidth / window.innerHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+        });
+    }
+
+    async function loadGalaxyData() {
+        const r = await fetch(API + '/visualization/galaxy', { headers: getHeaders() });
+        const points = await r.json();
+        createStarSystem(points);
+    }
+
+    function createStarSystem(data) {
+        if(particles) scene.remove(particles);
+
+        const geometry = new THREE.BufferGeometry();
+        const positions = [];
+        const colors = [];
+        const sizes = [];
+
+        const color1 = new THREE.Color('#d946ef'); // Masturbation (Pink/Purple)
+        const color2 = new THREE.Color('#f43f5e'); // Intercourse (Red/Rose)
+
+        // 螺旋星系参数
+        const spiralTightness = 0.2; 
+
+        data.forEach((p, i) => {
+            // 解构数据 [timestamp, minuteOfDay, satisfaction, type, duration]
+            const time = p[0]; 
+            const minOfDay = p[1]; // 0-1440
+            const score = p[2];
+            const type = p[3];
+
+            // 核心算法：将时间转化为空间坐标
+            // Z轴：时间轴 (越新的越靠近 0，越旧的越深)
+            const z = (Date.now() - time) / 86400000 * 5; // 每天间距 5 单位
+
+            // 角度：基于一天中的时间 (0点在上方)
+            const angle = (minOfDay / 1440) * Math.PI * 2;
+
+            // 半径：基于"螺旋" + 随机偏移 (形成星云感)
+            // 越久远的记录扩散得越开，形成漏斗状或隧道状
+            const baseRadius = 50 + (Math.random() * 20); 
+
+            const x = Math.cos(angle) * baseRadius;
+            const y = Math.sin(angle) * baseRadius;
+
+            positions.push(x, y, -z);
+
+            // 颜色
+            const color = type === 1 ? color2 : color1;
+            // 满意度越高，颜色越亮/白
+            const mixedColor = color.clone().lerp(new THREE.Color('#ffffff'), (score - 5) / 10);
+            colors.push(mixedColor.r, mixedColor.g, mixedColor.b);
+
+            // 大小
+            sizes.push(score * 1.5);
+        });
+
+        geometry.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
+        geometry.setAttribute('color', new THREE.Float32BufferAttribute(colors, 3));
+        geometry.setAttribute('size', new THREE.Float32BufferAttribute(sizes, 1));
+
+        // 粒子材质
+        const material = new THREE.PointsMaterial({
+            size: 4,
+            vertexColors: true,
+            map: getTexture(), // 生成一个发光圆点贴图
+            blending: THREE.AdditiveBlending,
+            depthWrite: false,
+            transparent: true,
+            opacity: 0.8
+        });
+
+        particles = new THREE.Points(geometry, material);
+        scene.add(particles);
+    }
+
+    // 辅助：生成粒子贴图
+    function getTexture() {
+        const canvas = document.createElement('canvas');
+        canvas.width = 32; canvas.height = 32;
+        const ctx = canvas.getContext('2d');
+        const grad = ctx.createRadialGradient(16,16,0,16,16,16);
+        grad.addColorStop(0, 'rgba(255,255,255,1)');
+        grad.addColorStop(0.4, 'rgba(255,255,255,0.5)');
+        grad.addColorStop(1, 'rgba(0,0,0,0)');
+        ctx.fillStyle = grad; ctx.fillRect(0,0,32,32);
+        const texture = new THREE.Texture(canvas);
+        texture.needsUpdate = true;
+        return texture;
+    }
+
+    function animateGalaxy() {
+        animationId = requestAnimationFrame(animateGalaxy);
+        if(controls) controls.update();
+
+        // 微弱的星空闪烁
+        if(particles) {
+            // 这里可以做一些动态效果，比如粒子轻微浮动
+        }
+
+        renderer.render(scene, camera);
+    }
+
+    function startGalaxy() {
+        initGalaxy();
+        loadGalaxyData();
+        animateGalaxy();
+    }
+
+    function stopGalaxy() {
+        if(animationId) cancelAnimationFrame(animationId);
+    }
+    function resetCamera() {
+        controls.reset();
+        camera.position.set(0, 100, 300);
+    }
+
+    // ==========================================
+    // 生理周期逻辑
+    // ==========================================
+    async function loadCycles() {
+        const r = await fetch(API + '/cycles', { headers: getHeaders() });
+        const list = await r.json();
+        const box = document.getElementById('cycleList');
+        box.innerHTML = list.map(c => 
+            \`<div style="display:flex; justify-content:space-between; padding:5px 0; border-bottom:1px solid #222;">
+                <span>🩸 \${c.start_date}</span>
+                <span style="color:#f43f5e; cursor:pointer;" onclick="delCycle('\${c.id}')">×</span>
+            </div>\`
+        ).join('');
+
+        // 加载趋势
+        loadCycleTrends();
+    }
+
+    async function addCycleRecord() {
+        const d = document.getElementById('cycleStartPicker').value;
+        if(!d) return;
+        await fetch(API + '/cycles', { method:'POST', headers: getHeaders(), body: JSON.stringify({start_date: d}) });
+        loadCycles();
+    }
+
+    async function delCycle(id) {
+        if(!confirm('删除此记录?')) return;
+        await fetch(API + '/cycles?id='+id, { method:'DELETE', headers: getHeaders() });
+        loadCycles();
+    }
+
+    async function loadCycleTrends() {
+        const r = await fetch(API + '/analysis/cycle-trends', { headers: getHeaders() });
+        const d = await r.json();
+        if(d.error) return; // 数据不足
+
+        const chart = document.getElementById('cycleChart');
+        chart.innerHTML = '';
+
+        // 找出最大值用于归一化高度
+        const maxCount = Math.max(...d.trends.map(t => t.frequency));
+
+        d.trends.forEach(t => {
+            const h = (t.frequency / maxCount) * 100;
+            const isHigh = t.day >= 12 && t.day <= 16; // 简单的排卵期高亮
+
+            const bar = document.createElement('div');
+            bar.className = 'c-bar ' + (isHigh ? 'high-desire' : '');
+            bar.style.height = (h || 2) + '%';
+            bar.title = \`Day \${t.day}: \${t.frequency}次 (均分 \${t.avg_score})\`;
+            chart.appendChild(bar);
+        });
+
+        // 简单预测
+        // 假设最后一次月经是列表里的第一个（因为是 start_date DESC）
+        const listNodes = document.getElementById('cycleList').children;
+        if(listNodes.length > 0) {
+            const lastDateStr = listNodes[0].querySelector('span').innerText.replace('🩸 ', '');
+            const lastDate = new Date(lastDateStr);
+            // 预测排卵期 (Day 14)
+            lastDate.setDate(lastDate.getDate() + 14);
+            const predBox = document.getElementById('cyclePrediction');
+            predBox.style.display = 'block';
+            document.getElementById('predDate').innerText = lastDate.toLocaleDateString();
+        }
+    }
+
+    // ==========================================
+    // 修改 switchView 函数以集成新视图
+    // ==========================================
+    // 保存旧的 switchView 引用如果需要，或者直接覆盖
+    const originalSwitchView = window.switchView || function(){};
+    window.switchView = function(v, el) {
+        // 处理 Dock 激活状态
+        document.querySelectorAll('.dock-item').forEach(d => d.classList.remove('active'));
+        if(el) el.classList.add('active');
+
+        // 处理视图切换
+        document.querySelectorAll('.view-section').forEach(view => {
+            if(view.id === 'view-'+v) view.classList.add('active'); 
+            else view.classList.remove('active');
+        });
+
+        // 特定视图逻辑
+        if (v === 'galaxy') startGalaxy();
+        else stopGalaxy(); // 离开 3D 视图时停止渲染节省电量
+
+        if (v === 'health') loadCycles();
+        if (v === 'leaderboard') loadLeaderboard();
+        if (v === 'history' && document.getElementById('timelineContainer').innerHTML==='') loadHistory();
+        if (v === 'admin' && adminPass) loadAdminData();
     }
   </script>
 </body>
