@@ -733,56 +733,92 @@ async function deleteCycle(url, env, user) {
     return jsonResponse({ message: '删除成功' });
 }
 
-// --- 核心算法：周期趋势分析 ---
+// --- 生理周期趋势分析 (已修复绑定参数问题) ---
 async function getCycleTrends(req, env, user) {
-    // 1. 获取最近一年的记录和周期数据
-    const [recRes, cycRes] = await Promise.all([
-        env.DB.prepare("SELECT datetime, satisfaction, activity_type FROM records WHERE uid = ? AND datetime > date('now', '-1 year')").all(),
-        env.DB.prepare("SELECT start_date FROM cycles WHERE uid = ? AND start_date > date('now', '-1 year') ORDER BY start_date ASC").all()
-    ]);
+    try {
+        // 1. 获取最近一年的记录和周期数据
+        // [关键修复] 增加了 .bind(user.uid)
+        const [recRes, cycRes] = await Promise.all([
+            env.DB.prepare("SELECT datetime, satisfaction FROM records WHERE uid = ? AND datetime > date('now', '-1 year')")
+                .bind(user.uid) 
+                .all(),
+            env.DB.prepare("SELECT start_date FROM cycles WHERE uid = ? AND start_date > date('now', '-1 year') ORDER BY start_date ASC")
+                .bind(user.uid)
+                .all()
+        ]);
 
-    const records = recRes.results;
-    const cycles = cycRes.results;
+        const records = recRes.results || [];
+        const cycles = cycRes.results || [];
 
-    if (cycles.length === 0) return jsonResponse({ error: 'no_data' });
+        // 如果没有周期数据，直接返回空数组，防止计算报错
+        if (cycles.length === 0) return jsonResponse({ trends: [] });
 
-    // 2. 将记录映射到周期日 (Cycle Day 1-28)
-    const cycleStats = new Array(30).fill(0).map(() => ({ count: 0, totalScore: 0 })); 
-    
-    records.forEach(r => {
-        const rDate = new Date(r.datetime);
-        // 找到该记录之前的最近一次月经开始日
-        let lastCycle = null;
-        for (let i = cycles.length - 1; i >= 0; i--) {
-            const cDate = new Date(cycles[i].start_date);
-            if (cDate <= rDate) {
-                lastCycle = cDate;
-                break;
-            }
-        }
+        // 2. 将记录映射到周期日 (Day 1 - Day 35)
+        // 初始化数组，用于存储每一天的统计数据
+        // 索引 0 不使用，从 1 开始对应周期第几天
+        const cycleStats = new Array(40).fill(null).map(() => ({ count: 0, totalScore: 0 })); 
         
-        if (lastCycle) {
-            // 计算是周期的第几天 (Day 1 是月经第一天)
-            const diffTime = Math.abs(rDate - lastCycle);
-            const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24)); 
+        records.forEach(r => {
+            const rDate = new Date(r.datetime);
+            // 将记录时间归零到当天 00:00:00，避免因具体发生时间导致的跨天计算偏差
+            rDate.setHours(0, 0, 0, 0);
+
+            // 寻找该记录之前的最近一次月经开始日
+            let lastCycleDate = null;
+
+            // 倒序遍历，找到第一个日期早于或等于记录日期的周期开始日
+            for (let i = cycles.length - 1; i >= 0; i--) {
+                const cDate = new Date(cycles[i].start_date);
+                cDate.setHours(0, 0, 0, 0); // 同样归零
+                
+                if (cDate <= rDate) {
+                    lastCycleDate = cDate;
+                    break;
+                }
+            }
             
-            // 只统计标准周期内的数据 (例如前30天)
-            if (diffDays > 0 && diffDays <= 29) {
-                cycleStats[diffDays].count++;
-                cycleStats[diffDays].totalScore += (r.satisfaction || 5);
+            if (lastCycleDate) {
+                // 计算时间差 (毫秒)
+                const diffTime = rDate.getTime() - lastCycleDate.getTime();
+                // 转换为天数 (Day 1 是开始当天，所以 +1)
+                const diffDays = Math.floor(diffTime / (1000 * 60 * 60 * 24)) + 1;
+                
+                // 只统计标准周期范围内的数据 (例如 1 到 35 天)
+                // 超过 35 天可能意味着漏记了周期，不计入统计以免干扰数据
+                if (diffDays >= 1 && diffDays <= 35) {
+                    if (cycleStats[diffDays]) {
+                        cycleStats[diffDays].count++;
+                        cycleStats[diffDays].totalScore += (r.satisfaction || 5);
+                    }
+                }
+            }
+        });
+
+        // 3. 格式化输出结果
+        const trends = [];
+        for(let i = 1; i <= 35; i++) {
+            const d = cycleStats[i];
+            // 只有当天有数据才返回
+            if (d && d.count > 0) {
+                trends.push({
+                    day: i,
+                    avg_score: parseFloat((d.totalScore / d.count).toFixed(1)),
+                    frequency: d.count
+                });
             }
         }
-    });
 
-    // 3. 预测逻辑 (简化版：假设周期为28天)
-    // 寻找 count 最高的区域作为"高欲望期"
-    const analyzed = cycleStats.map((d, i) => ({
-        day: i,
-        avg_score: d.count ? (d.totalScore / d.count).toFixed(1) : 0,
-        frequency: d.count
-    })).slice(1); // 去掉索引0
+        return jsonResponse({ trends });
 
-    return jsonResponse({ trends: analyzed });
+    } catch (e) {
+        // 捕获错误并记录，避免直接崩 500 且不知道原因
+        console.error("Cycle Trends Error:", e.message);
+        // 如果表不存在，可能是 SQL 没执行
+        if (e.message.includes('no such table')) {
+             return jsonResponse({ error: "Table missing", trends: [] });
+        }
+        return jsonResponse({ error: "Analysis failed", trends: [] });
+    }
 }
 
 // --- 3D 可视化数据 ---
