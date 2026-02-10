@@ -915,6 +915,10 @@ async function serveFrontend() {
     .btn:active { transform: scale(0.97); }
     .btn-outline { background: transparent; border: 1px solid rgba(255,255,255,0.2); box-shadow: none; }
     .btn-danger { background: linear-gradient(135deg, #ef4444, #b91c1c); box-shadow: 0 4px 15px rgba(239, 68, 68, 0.3); }
+    .btn-mini { background:#27272a; border:1px solid #3f3f46; color:#e5e7eb; border-radius:999px; padding:4px 10px; font-size:0.75rem; cursor:pointer; transition:0.2s; }
+    .btn-mini:hover { background:#3f3f46; }
+    .btn-mini.danger { background:#7f1d1d; border-color:#b91c1c; color:#fecaca; }
+    .btn-mini.danger:hover { background:#b91c1c; }
     .container { max-width: 800px; margin: 0 auto; padding: 20px; }
     .hidden { display: none !important; }
     
@@ -1034,6 +1038,36 @@ async function serveFrontend() {
     .dock-item.timer-btn svg { width: 28px; height: 28px; filter: drop-shadow(0 0 5px rgba(244, 63, 94, 0.4)); }
     .dock-item.timer-btn.active { color: #fff; }
     .dock-item.timer-btn:active svg { transform: scale(0.9); }
+
+    /* 桌面端优化：Dock 改为左侧垂直栏，避免与内容/键盘冲突，交互更接近桌面应用 */
+    @media (min-width: 900px) {
+        body {
+            padding-bottom: 40px; /* 桌面端不需要大号底部安全区 */
+        }
+        .container {
+            max-width: 960px;
+            padding-left: 110px; /* 为左侧 Dock 预留空间 */
+        }
+        .dock-nav {
+            top: 50%;
+            bottom: auto;
+            left: 30px;
+            transform: translateY(-50%);
+            width: 72px;
+            height: auto;
+            flex-direction: column;
+            padding: 10px 6px;
+            border-radius: 999px;
+        }
+        .dock-item {
+            width: 100%;
+            height: 62px;
+        }
+        /* 批量操作栏在桌面端稍微下移，避免与内容重叠太多 */
+        .batch-bar {
+            bottom: 40px;
+        }
+    }
 
     /* 弹窗适配 */
     .modal-overlay { position: fixed; top: 0; left: 0; width: 100%; height: 100%; z-index: 200; background: rgba(0,0,0,0.8); backdrop-filter: blur(5px); display: none; align-items: flex-end; justify-content: center; opacity: 0; transition: opacity 0.3s; }
@@ -1571,6 +1605,8 @@ async function serveFrontend() {
     let timerInterval = null;
     let isBatchMode = false;
     let selectedIds = new Set();
+    // 简单判断当前是否为触控设备，用于区分 PC / 移动端交互逻辑
+    const isTouchDevice = (('ontouchstart' in window) || navigator.maxTouchPoints > 0);
     
     const API = '/api';
     const TR_MAP = ${JSON.stringify(TR_MAP)};
