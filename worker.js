@@ -2361,15 +2361,28 @@ async function serveFrontend() {
        }
     }
     
+    // 统一的视图切换函数（供 Dock / 管理后台按钮等调用）
     function switchView(v, el) {
+        // Dock 激活状态
         document.querySelectorAll('.dock-item').forEach(d => d.classList.remove('active'));
-        if(el) el.classList.add('active');
+        if (el) el.classList.add('active');
+
+        // 显隐对应视图
         document.querySelectorAll('.view-section').forEach(view => {
-            if(view.id === 'view-'+v) view.classList.add('active'); else view.classList.remove('active');
+            if (view.id === 'view-' + v) view.classList.add('active');
+            else view.classList.remove('active');
         });
-        if(v==='leaderboard') loadLeaderboard();
-        if(v==='history' && document.getElementById('timelineContainer').innerHTML==='') loadHistory();
-        if(v==='admin' && adminPass) loadAdminData();
+
+        // 特定视图逻辑
+        if (typeof startGalaxy === 'function' && typeof stopGalaxy === 'function') {
+            if (v === 'galaxy') startGalaxy();
+            else stopGalaxy();
+        }
+
+        if (v === 'health' && typeof loadCycles === 'function') loadCycles();
+        if (v === 'leaderboard') loadLeaderboard();
+        if (v === 'history' && document.getElementById('timelineContainer').innerHTML === '') loadHistory();
+        if (v === 'admin' && adminPass) loadAdminData();
     }
     async function loadLeaderboard() {
         const r = await fetch(API+'/leaderboard', { headers: getHeaders() });
@@ -2607,31 +2620,7 @@ async function serveFrontend() {
         }
     }
 
-    // ==========================================
-    // 修改 switchView 函数以集成新视图
-    // ==========================================
-    // 保存旧的 switchView 引用如果需要，或者直接覆盖
-    const originalSwitchView = window.switchView || function(){};
-    window.switchView = function(v, el) {
-        // 处理 Dock 激活状态
-        document.querySelectorAll('.dock-item').forEach(d => d.classList.remove('active'));
-        if(el) el.classList.add('active');
-
-        // 处理视图切换
-        document.querySelectorAll('.view-section').forEach(view => {
-            if(view.id === 'view-'+v) view.classList.add('active'); 
-            else view.classList.remove('active');
-        });
-
-        // 特定视图逻辑
-        if (v === 'galaxy') startGalaxy();
-        else stopGalaxy(); // 离开 3D 视图时停止渲染节省电量
-
-        if (v === 'health') loadCycles();
-        if (v === 'leaderboard') loadLeaderboard();
-        if (v === 'history' && document.getElementById('timelineContainer').innerHTML==='') loadHistory();
-        if (v === 'admin' && adminPass) loadAdminData();
-    }
+    // （此处原本有一个重复的 window.switchView 覆盖实现，已合并到上方的 switchView 函数中，避免多处定义导致行为异常）
   </script>
 </body>
 </html>
