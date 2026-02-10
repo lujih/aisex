@@ -1102,7 +1102,9 @@ async function serveFrontend() {
     .tag-cb label { display: inline-block; padding: 6px 14px; background: rgba(255,255,255,0.05); border-radius: 20px; font-size: 0.8rem; color: #ccc; cursor: pointer; border: 1px solid transparent; transition: 0.2s; }
     .tag-cb input:checked + label { background: rgba(255,255,255,0.15); border-color: var(--primary); color: #fff; }
     .record-icon { width: 44px; height: 44px; border-radius: 12px; display: flex; align-items: center; justify-content: center; font-size: 1.4rem; margin-right: 15px; background: rgba(0,0,0,0.3); flex-shrink: 0; }
-    .user-avatar { width: 80px; height: 80px; border-radius: 50%; background-size: cover; background-position: center; background-color: #333; margin: 0 auto 15px; display: flex; align-items: center; justify-content: center; font-size: 2rem; border: 4px solid rgba(255,255,255,0.1); cursor:pointer; overflow: hidden; }
+    .user-avatar { width: 96px; height: 96px; border-radius: 50%; background-size: cover; background-position: center; background-color: #18181b; margin: 0 auto 12px; display: flex; align-items: center; justify-content: center; font-size: 2.2rem; border: 3px solid rgba(248,250,252,0.12); box-shadow: 0 0 0 4px rgba(79,70,229,0.2); cursor:pointer; overflow: hidden; position: relative; }
+    .user-avatar::after { content:'编辑头像'; position:absolute; left:0; right:0; bottom:0; font-size:0.65rem; color:#e5e7eb; background:linear-gradient(to top,rgba(0,0,0,0.7),transparent); padding:4px 0; opacity:0; transition:opacity .2s; }
+    .user-avatar:hover::after { opacity:1; }
     .form-subtitle { font-size: 0.75rem; color: var(--secondary); margin: 15px 0 8px; font-weight: bold; border-left: 3px solid var(--secondary); padding-left: 8px; }
     .admin-table { width: 100%; border-collapse: collapse; font-size: 0.85rem; color: #ccc; }
     .admin-table th { text-align: left; padding: 10px; color: #666; border-bottom: 1px solid #333; }
@@ -1334,24 +1336,66 @@ async function serveFrontend() {
 
     <!-- 视图：个人中心 -->
     <div id="view-profile" class="view-section">
-       <div class="glass card" style="text-align:center; margin-top:20px;">
-          <div class="user-avatar" id="avatarDisplay" onclick="toggleAvatarInput()">👤</div>
-          <div id="avatarInputBox" class="hidden" style="margin-bottom:15px;">
-             <input type="text" id="avatarUrlInput" placeholder="输入头像图片链接 (URL)" style="margin-bottom:5px;">
-             <button class="btn btn-outline" style="padding:5px;" onclick="saveAvatar()">保存头像</button>
+       <!-- 顶部个人信息卡 -->
+       <div class="glass card" style="margin-top:20px; text-align:center; padding-bottom:16px;">
+          <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px;">
+              <span style="font-size:0.75rem; color:#6b7280;">我的档案</span>
+              <span style="font-size:0.75rem; color:#4b5563;">私密本地 · 安全加密</span>
           </div>
-          <h2 id="profileUser" style="margin:0 0 5px 0;">User</h2>
-          <div style="font-size:0.8rem; color:#666;">秘密花园会员</div>
+          <div class="user-avatar" id="avatarDisplay" onclick="toggleAvatarInput()">👤</div>
+          <div id="avatarInputBox" class="hidden" style="margin-bottom:12px;">
+             <input type="text" id="avatarUrlInput" placeholder="输入头像图片链接 (URL)" style="margin-bottom:6px;">
+             <button class="btn btn-outline" style="padding:6px 10px; font-size:0.8rem;" onclick="saveAvatar()">保存头像</button>
+          </div>
+          <h2 id="profileUser" style="margin:0 0 4px 0; font-size:1.25rem;">User</h2>
+          <div style="font-size:0.8rem; color:#9ca3af; margin-bottom:12px;">秘密花园 · 低调玩家</div>
+
+          <!-- 简要个人统计 -->
+          <div style="display:flex; justify-content:space-between; gap:10px; margin-top:4px; font-size:0.75rem; color:#9ca3af;">
+              <div style="flex:1; text-align:center; padding:8px 0; border-radius:10px; background:rgba(15,23,42,0.9); border:1px solid rgba(148,163,184,0.25);">
+                  <div style="font-size:0.7rem; color:#6b7280;">最近 7 天</div>
+                  <div id="profileStatWeek" style="margin-top:2px; font-size:0.95rem; color:#e5e7eb;">-- 次</div>
+              </div>
+              <div style="flex:1; text-align:center; padding:8px 0; border-radius:10px; background:rgba(15,23,42,0.9); border:1px solid rgba(148,163,184,0.25);">
+                  <div style="font-size:0.7rem; color:#6b7280;">平均满意度</div>
+                  <div id="profileStatScore" style="margin-top:2px; font-size:0.95rem; color:#e5e7eb;">-- / 10</div>
+              </div>
+              <div style="flex:1; text-align:center; padding:8px 0; border-radius:10px; background:rgba(15,23,42,0.9); border:1px solid rgba(148,163,184,0.25);">
+                  <div style="font-size:0.7rem; color:#6b7280;">连续记录</div>
+                  <div id="profileStatStreak" style="margin-top:2px; font-size:0.95rem; color:#e5e7eb;">-- 天</div>
+              </div>
+          </div>
        </div>
        
+       <!-- 偏好与安全设置 -->
+       <div class="glass card" style="margin-top:10px; padding:16px 16px 10px 16px;">
+          <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;">
+              <span style="font-size:0.9rem;">偏好设置</span>
+              <span style="font-size:0.7rem; color:#6b7280;">只作用于本设备</span>
+          </div>
+          <div style="display:flex; flex-direction:column; gap:8px; font-size:0.8rem; color:#e5e7eb;">
+              <label style="display:flex; align-items:center; justify-content:space-between; gap:10px;">
+                  <span>深色背景动态光效</span>
+                  <input type="checkbox" id="prefAmbient" onchange="toggleAmbient()" checked>
+              </label>
+              <label style="display:flex; align-items:center; justify-content:space-between; gap:10px;">
+                  <span>进入首页时自动加载统计</span>
+                  <input type="checkbox" id="prefAutoStats" checked>
+              </label>
+          </div>
+       </div>
+
        <!-- 安全设置 (抽屉样式) -->
-       <div class="card" style="background:rgba(255,255,255,0.02); padding:0; overflow:hidden;" id="securityDrawer">
-          <div class="drawer-header" onclick="toggleDrawer()" style="padding:20px;">
-             <h4 style="margin:0;">安全设置</h4>
+       <div class="card" style="background:rgba(15,23,42,0.85); padding:0; overflow:hidden; margin-top:10px;" id="securityDrawer">
+          <div class="drawer-header" onclick="toggleDrawer()" style="padding:16px 20px;">
+             <div>
+                <h4 style="margin:0; font-size:0.95rem;">安全与密码</h4>
+                <div style="font-size:0.7rem; color:#6b7280; margin-top:4px;">修改登录密码，保护你的秘密花园</div>
+             </div>
              <span class="drawer-arrow">▼</span>
           </div>
           <div class="drawer-content">
-             <div style="padding:0 20px 20px 20px;">
+             <div style="padding:0 20px 18px 20px;">
                 <div class="form-group"><input type="password" id="p-old" placeholder="当前密码"></div>
                 <div class="form-group"><input type="password" id="p-new" placeholder="新密码 (至少5位)"></div>
                 <button class="btn btn-outline" onclick="changePassword()">修改密码</button>
@@ -1359,13 +1403,16 @@ async function serveFrontend() {
           </div>
        </div>
        
-       <div class="glass card" onclick="openAbout()" style="cursor:pointer; display:flex; justify-content:space-between; align-items:center;">
-           <span>关于 Secret Garden</span>
-           <span style="color:#666; font-size:0.8rem;">v8.0 ></span>
+       <div class="glass card" onclick="openAbout()" style="cursor:pointer; display:flex; justify-content:space-between; align-items:center; margin-top:10px;">
+           <div>
+             <div style="font-size:0.9rem;">关于 Secret Garden</div>
+             <div style="font-size:0.7rem; color:#6b7280; margin-top:2px;">版本 v8.0 · 设计初衷与开源信息</div>
+           </div>
+           <span style="color:#6b7280; font-size:0.9rem;">详情 &gt;</span>
        </div>
 
-       <button class="btn btn-outline" style="border-style:dashed; color:#666; margin-top:10px;" onclick="switchView('admin', null)">管理后台</button>
-       <button class="btn" style="background:#333; color:#aaa; margin-top:20px;" onclick="logout()">退出登录</button>
+       <button class="btn btn-outline" style="border-style:dashed; color:#9ca3af; margin-top:12px;" onclick="switchView('admin', null)">管理后台</button>
+       <button class="btn" style="background:#111827; color:#fca5a5; margin-top:16px;" onclick="logout()">退出登录</button>
     </div>
 
     <!-- 视图：欲望星球 (3D) -->
@@ -1643,6 +1690,22 @@ async function serveFrontend() {
         loadStats();
         setupInfiniteScroll();
         checkTimerState();
+
+        // 从缓存中回填个人页统计（如果有）
+        try {
+            const cachedStats = JSON.parse(localStorage.getItem('sg_last_stats') || 'null');
+            if (cachedStats) {
+                if (typeof cachedStats.last7_days === 'number') {
+                    document.getElementById('profileStatWeek').innerText = cachedStats.last7_days + ' 次';
+                }
+                if (typeof cachedStats.avg_satisfaction === 'number') {
+                    document.getElementById('profileStatScore').innerText = cachedStats.avg_satisfaction.toFixed(1) + ' / 10';
+                }
+                if (typeof cachedStats.streak_days === 'number') {
+                    document.getElementById('profileStatStreak').innerText = cachedStats.streak_days + ' 天';
+                }
+            }
+        } catch(e) {}
         
         if(adminPass) {
              document.getElementById('adminPassInput').value = adminPass;
@@ -1769,6 +1832,23 @@ async function serveFrontend() {
 
             document.getElementById('sScore').innerText = s.avg_satisfaction;
             document.getElementById('sOrgasm').innerText = s.total_orgasms;
+
+            // 缓存一份轻量统计给「我的」页面使用
+            try {
+                const profileStats = {
+                    last7_days: s.last7_days || 0,
+                    avg_satisfaction: s.avg_satisfaction || 0,
+                    streak_days: s.streak_days || 0
+                };
+                localStorage.setItem('sg_last_stats', JSON.stringify(profileStats));
+
+                // 如果当前正停留在个人中心，顺便实时刷新卡片上的数字
+                if (document.getElementById('view-profile').classList.contains('active')) {
+                    document.getElementById('profileStatWeek').innerText = profileStats.last7_days + ' 次';
+                    document.getElementById('profileStatScore').innerText = profileStats.avg_satisfaction.toFixed(1) + ' / 10';
+                    document.getElementById('profileStatStreak').innerText = profileStats.streak_days + ' 天';
+                }
+            } catch(e) {}
 
             // 渲染热力图
             renderHeatmap(s.daily_activity || {});
