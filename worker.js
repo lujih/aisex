@@ -875,7 +875,7 @@ async function serveFrontend() {
   <!-- 1. 国内极速 CDN (BootCDN) -->
   <script src="https://cdn.bootcdn.net/ajax/libs/Chart.js/3.9.1/chart.min.js"></script>
   <script src="https://cdn.bootcdn.net/ajax/libs/three.js/r128/three.min.js"></script>
-  <script src="https://cdn.bootcdn.net/ajax/libs/three.js/r128/examples/js/controls/OrbitControls.js"></script>
+  <script src="https://unpkg.com/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
   <style>
     :root {
       --bg-deep: #050505;
@@ -1632,7 +1632,7 @@ async function serveFrontend() {
               </label>
               <label class="settings-item">
                   <span>进入首页时自动加载统计</span>
-                  <input type="checkbox" id="prefAutoStats" checked>
+                  <input type="checkbox" id="prefAutoStats" onchange="toggleAutoStats()" checked>
                   <span class="toggle-switch"></span>
               </label>
           </div>
@@ -1940,6 +1940,10 @@ async function serveFrontend() {
     let user = localStorage.getItem('sg_user');
     let adminPass = localStorage.getItem('sg_admin_pass');
     
+    // 加载偏好设置
+    const prefAmbient = localStorage.getItem('sg_pref_ambient') !== 'false';
+    const prefAutoStats = localStorage.getItem('sg_pref_auto_stats') !== 'false';
+    
     let currentPage = 1, isLoading = false, hasMore = true;
     let historyPage = 1, historyLoading = false, historyHasMore = true;
 
@@ -1957,6 +1961,11 @@ async function serveFrontend() {
         loadStats();
         setupInfiniteScroll();
         checkTimerState();
+        
+        // 应用偏好设置
+        document.getElementById('prefAmbient').checked = prefAmbient;
+        document.getElementById('prefAutoStats').checked = prefAutoStats;
+        applyAmbient(prefAmbient);
 
         // 从缓存中回填个人页统计（如果有）
         try {
@@ -2537,6 +2546,20 @@ async function serveFrontend() {
             loadRecords();
             loadStats();
         }
+    }
+
+    // --- Preferences ---
+    function applyAmbient(enabled) {
+        const ambient = document.querySelector('.ambient-bg');
+        if(ambient) ambient.style.display = enabled ? 'block' : 'none';
+    }
+    function toggleAmbient() {
+        const el = document.getElementById('prefAmbient');
+        localStorage.setItem('sg_pref_ambient', el.checked);
+        applyAmbient(el.checked);
+    }
+    function toggleAutoStats() {
+        localStorage.setItem('sg_pref_auto_stats', document.getElementById('prefAutoStats').checked);
     }
 
     // --- Timer ---
