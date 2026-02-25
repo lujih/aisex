@@ -50,7 +50,7 @@ export default {
       // ============================
       // A. 公开/静态资源
       // ============================
-      if (path === '/' || path === '/index.html') {
+      if (path === '/' || path === '/index.html' || path === '/favicon.ico') {
           response = await serveFrontend();
       }
       
@@ -450,6 +450,7 @@ async function getStatistics(req, env, user, ctx) {
     masturbation: stats.masturbation || 0,
     intercourse: stats.intercourse || 0,
     total_orgasms: stats.total_orgasms || 0,
+    total_ejaculations: stats.total_ejaculations || 0,
     avg_satisfaction: parseFloat((stats.avg_satisfaction || 0).toFixed(1)),
     avg_duration: Math.round(stats.avg_duration || 0),
     records_by_month,
@@ -925,7 +926,8 @@ async function serveFrontend() {
     .btn-mini:hover { background:#3f3f46; }
     .btn-mini.danger { background:#7f1d1d; border-color:#b91c1c; color:#fecaca; }
     .btn-mini.danger:hover { background:#b91c1c; }
-    .container { max-width: 800px; margin: 0 auto; padding: 20px; padding-bottom: 100px; }
+    .container { max-width: 800px; margin: 0 auto; padding: 20px; }
+    #view-home { padding-bottom: 100px; }
     .hidden { display: none !important; }
     
     /* 动画与过渡 */
@@ -1060,7 +1062,9 @@ async function serveFrontend() {
         .container {
             max-width: 960px;
             padding-left: 110px;
-            padding-bottom: 40px;
+        }
+        #view-home {
+            padding-bottom: 60px;
         }
         .dock-nav {
             top: 50%;
