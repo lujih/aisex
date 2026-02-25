@@ -414,7 +414,8 @@ async function getStatistics(req, env, user, ctx) {
       sum(case when activity_type = 'masturbation' then 1 else 0 end) as masturbation, 
       sum(case when activity_type = 'intercourse' then 1 else 0 end) as intercourse, 
       sum(orgasm_count) as total_orgasms, 
-      avg(satisfaction) as avg_satisfaction, 
+      sum(ejaculation_count) as total_ejaculations, 
+      avg(satisfaction) as avg_satisfaction,
       avg(duration) as avg_duration 
       FROM records WHERE uid = ? ${timeFilter}`;
   
@@ -1524,6 +1525,7 @@ async function serveFrontend() {
          <div class="stat-box"><div class="stat-val" id="sDuration">0</div><div class="stat-label">均时长 (分)</div></div>
          <div class="stat-box"><div class="stat-val" id="sScore">0</div><div class="stat-label">满意度</div></div>
          <div class="stat-box"><div class="stat-val" id="sOrgasm" style="color:var(--primary);">0</div><div class="stat-label">总高潮</div></div>
+          <div class="stat-box"><div class="stat-val" id="sEjaculation" style="color:var(--accent);">0</div><div class="stat-label">总射精</div></div>
        </div>
 
        <!-- 热力图 -->
@@ -2129,6 +2131,7 @@ async function serveFrontend() {
 
             document.getElementById('sScore').innerText = s.avg_satisfaction;
             document.getElementById('sOrgasm').innerText = s.total_orgasms;
+            document.getElementById('sEjaculation').innerText = s.total_ejaculations || 0;
 
             // 缓存一份轻量统计给「我的」页面使用
             try {
