@@ -1956,7 +1956,13 @@ async function serveFrontend() {
         document.getElementById('app').classList.remove('hidden');
         document.getElementById('profileUser').innerText = user;
         const avatar = localStorage.getItem('sg_avatar_'+user);
-        if(avatar) document.getElementById('avatarDisplay').style.backgroundImage = \`url('\${avatar}')\`;
+        if(avatar) {
+            document.getElementById('avatarDisplay').style.backgroundImage = \`url('\${avatar}')\`;
+        } else {
+            // 使用 DiceBear 生成默认头像
+            const dicebearUrl = \`https://api.dicebear.com/7.x/adventurer/svg?seed=\${encodeURIComponent(user)}\`;
+            document.getElementById('avatarDisplay').style.backgroundImage = \`url('\${dicebearUrl}')\`;
+        }
         
         loadStats();
         setupInfiniteScroll();
