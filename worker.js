@@ -911,10 +911,15 @@ async function serveFrontend() {
     /* 核心组件 */
     .glass { background: var(--glass-surface); backdrop-filter: blur(15px); -webkit-backdrop-filter: blur(15px); border: 1px solid var(--glass-border); box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4); }
     .card { border-radius: 16px; padding: 20px; margin-bottom: 15px; position: relative; overflow: hidden; transition: transform 0.2s; }
+    .card:hover { transform: translateY(-2px); }
     .btn { background: linear-gradient(135deg, var(--primary), var(--secondary)); color: white; border: none; border-radius: 12px; padding: 12px; font-weight: 600; width: 100%; cursor: pointer; transition: 0.2s; box-shadow: 0 4px 15px rgba(217, 70, 239, 0.3); }
-    .btn:active { transform: scale(0.97); }
+    .btn:hover { filter: brightness(1.1); transform: translateY(-1px); }
+    .btn:focus { outline: 2px solid var(--primary); outline-offset: 2px; }
+    .btn:active { transform: scale(0.97); filter: brightness(0.95); }
     .btn-outline { background: transparent; border: 1px solid rgba(255,255,255,0.2); box-shadow: none; }
+    .btn-outline:hover { background: rgba(255,255,255,0.1); border-color: rgba(255,255,255,0.4); }
     .btn-danger { background: linear-gradient(135deg, #ef4444, #b91c1c); box-shadow: 0 4px 15px rgba(239, 68, 68, 0.3); }
+    .btn-danger:hover { filter: brightness(1.1); }
     .btn-mini { background:#27272a; border:1px solid #3f3f46; color:#e5e7eb; border-radius:999px; padding:4px 10px; font-size:0.75rem; cursor:pointer; transition:0.2s; }
     .btn-mini:hover { background:#3f3f46; }
     .btn-mini.danger { background:#7f1d1d; border-color:#b91c1c; color:#fecaca; }
@@ -942,7 +947,10 @@ async function serveFrontend() {
         border-radius: 16px; background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.05); 
         margin-bottom: 10px; position: absolute; width: 100%; left: 0;
         touch-action: pan-y; /* 允许垂直滚动，拦截水平手势 */
+        cursor: pointer;
+        transition: border-color 0.2s, background 0.2s;
     }
+    .record-card:hover { border-color: rgba(255,255,255,0.15); background: rgba(255,255,255,0.05); }
     .record-card-content {
         position: relative; z-index: 2; width: 100%; height: 100%;
         display: flex; align-items: center; padding: 16px;
@@ -969,7 +977,8 @@ async function serveFrontend() {
         font-size: 16px; 
         transition: 0.3s; 
     }
-    .search-input:focus { background: rgba(255,255,255,0.15); border-color: var(--primary); }
+    .search-input:focus { background: rgba(255,255,255,0.15); border-color: var(--primary); outline: none; box-shadow: 0 0 0 3px rgba(217, 70, 239, 0.2); }
+    .search-input::placeholder { color: #666; }
     .search-clear { position: absolute; right: 10px; top: 50%; transform: translateY(-50%); width: 24px; height: 24px; color: #888; display: flex; align-items: center; justify-content: center; font-size: 14px; cursor: pointer; opacity: 0; visibility: hidden; }
     .search-wrapper.has-text .search-clear { opacity: 1; visibility: visible; }
     
@@ -1032,10 +1041,13 @@ async function serveFrontend() {
     .dock-item { position: relative; display: flex; flex-direction: column; align-items: center; justify-content: center; color: #666; font-size: 0.65rem; gap: 3px; transition: 0.3s; width: 60px; height: 100%; cursor: pointer; }
     .dock-item::after { content:''; position:absolute; top:-10px; bottom:-10px; left:0; right:0; }
     .dock-item svg { width: 22px; height: 22px; stroke: currentColor; stroke-width: 2; fill: none; transition: 0.3s; }
+    .dock-item:hover { color: #999; }
+    .dock-item:focus { outline: 2px solid var(--primary); outline-offset: -2px; border-radius: 8px; }
     .dock-item.active { color: var(--primary); }
     .dock-item.active svg { transform: translateY(-3px); stroke: var(--primary); }
     .dock-item.timer-btn { color: var(--accent); }
     .dock-item.timer-btn svg { width: 28px; height: 28px; filter: drop-shadow(0 0 5px rgba(244, 63, 94, 0.4)); }
+    .dock-item.timer-btn:hover { color: #ff6b6b; }
     .dock-item.timer-btn.active { color: #fff; }
     .dock-item.timer-btn:active svg { transform: scale(0.9); }
 
@@ -1089,19 +1101,25 @@ async function serveFrontend() {
     .stat-label { font-size: 0.7rem; color: var(--text-muted); margin-top: 4px; }
     
     .segment-control { display: flex; background: #222; border-radius: 12px; padding: 4px; margin-bottom: 20px; border: 1px solid #333; }
-    .segment-opt { flex: 1; text-align: center; padding: 10px; border-radius: 10px; color: #888; font-weight: 600; cursor: pointer; transition: 0.3s; }
+    .segment-opt { flex: 1; text-align: center; padding: 10px; border-radius: 10px; color: #888; font-weight: 600; cursor: pointer; transition: 0.3s; display: flex; align-items: center; justify-content: center; gap: 4px; }
+    .segment-opt:hover { color: #bbb; background: rgba(255,255,255,0.05); }
     .segment-opt.active { background: #333; color: #fff; }
     .segment-opt.active[data-val="masturbation"] { background: var(--primary); }
     .segment-opt.active[data-val="intercourse"] { background: var(--accent); }
     .input-row { display: flex; gap: 12px; margin-bottom: 12px; }
     .form-group { margin-bottom: 15px; flex: 1; }
     label { display: block; font-size: 0.8rem; color: #aaa; margin-bottom: 6px; }
-    input, select, textarea { width: 100%; background: #222; border: 1px solid #333; color: #fff; padding: 12px; border-radius: 10px; font-size: 0.95rem; font-family: inherit; }
+    input, select, textarea { width: 100%; background: #222; border: 1px solid #333; color: #fff; padding: 12px; border-radius: 10px; font-size: 0.95rem; font-family: inherit; transition: border-color 0.2s, box-shadow 0.2s; }
+    input:focus, select:focus, textarea:focus { border-color: var(--primary); outline: none; box-shadow: 0 0 0 3px rgba(217, 70, 239, 0.2); }
+    input::placeholder, textarea::placeholder { color: #555; }
     .tag-group { display: flex; flex-wrap: wrap; gap: 8px; }
     .tag-cb input { display: none; }
     .tag-cb label { display: inline-block; padding: 6px 14px; background: rgba(255,255,255,0.05); border-radius: 20px; font-size: 0.8rem; color: #ccc; cursor: pointer; border: 1px solid transparent; transition: 0.2s; }
     .tag-cb input:checked + label { background: rgba(255,255,255,0.15); border-color: var(--primary); color: #fff; }
-    .record-icon { width: 44px; height: 44px; border-radius: 12px; display: flex; align-items: center; justify-content: center; font-size: 1.4rem; margin-right: 15px; background: rgba(0,0,0,0.3); flex-shrink: 0; }
+    .record-icon { width: 44px; height: 44px; border-radius: 12px; display: flex; align-items: center; justify-content: center; margin-right: 15px; background: rgba(0,0,0,0.3); flex-shrink: 0; }
+    .record-icon svg { width: 24px; height: 24px; }
+    .record-icon.type-m svg { stroke: var(--primary); fill: none; }
+    .record-icon.type-i svg { stroke: var(--accent); fill: none; }
     .user-avatar { width: 96px; height: 96px; border-radius: 50%; background-size: cover; background-position: center; background-color: #18181b; margin: 0 auto 12px; display: flex; align-items: center; justify-content: center; font-size: 2.2rem; border: 3px solid rgba(248,250,252,0.12); box-shadow: 0 0 0 4px rgba(79,70,229,0.2); cursor:pointer; overflow: hidden; position: relative; }
     .user-avatar::after { content:'编辑头像'; position:absolute; left:0; right:0; bottom:0; font-size:0.65rem; color:#e5e7eb; background:linear-gradient(to top,rgba(0,0,0,0.7),transparent); padding:4px 0; opacity:0; transition:opacity .2s; }
     .user-avatar:hover::after { opacity:1; }
@@ -1485,32 +1503,32 @@ async function serveFrontend() {
   </div>
 
   <!-- Dock 导航 -->
-  <div class="dock-nav" id="dockNav">
-    <div class="dock-item active" onclick="switchView('home', this)">
+  <div class="dock-nav" id="dockNav" role="navigation" aria-label="主导航">
+    <div class="dock-item active" onclick="switchView('home', this)" tabindex="0" role="button" aria-label="首页">
       <svg viewBox="0 0 24 24"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"></path><polyline points="9 22 9 12 15 12 15 22"></polyline></svg>
       <span>首页</span>
     </div>
-    <div class="dock-item" onclick="switchView('history', this)">
+    <div class="dock-item" onclick="switchView('history', this)" tabindex="0" role="button" aria-label="历史">
       <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"></circle><polyline points="12 6 12 12 16 14"></polyline></svg>
       <span>历史</span>
     </div>
-    <div class="dock-item" onclick="switchView('health', this)">
+    <div class="dock-item" onclick="switchView('health', this)" tabindex="0" role="button" aria-label="健康">
         <svg viewBox="0 0 24 24"><path d="M22 12h-4l-3 9L9 3l-3 9H2"></path></svg>
         <span>健康</span>
     </div>
-    <div class="dock-item timer-btn" onclick="startTimer()">
+    <div class="dock-item timer-btn" onclick="startTimer()" tabindex="0" role="button" aria-label="计时器">
       <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"></circle><polyline points="12 6 12 12"></polyline><line x1="12" y1="6" x2="12" y2="2"></line></svg>
       <span>计时</span>
     </div>
-        <div class="dock-item" onclick="switchView('galaxy', this)">
+        <div class="dock-item" onclick="switchView('galaxy', this)" tabindex="0" role="button" aria-label="星系">
         <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"></circle><path d="M2 12h20"></path><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"></path></svg>
         <span>星系</span>
     </div>
-    <div class="dock-item" onclick="switchView('leaderboard', this)">
+    <div class="dock-item" onclick="switchView('leaderboard', this)" tabindex="0" role="button" aria-label="榜单">
       <svg viewBox="0 0 24 24"><path d="M6 9H4.5a2.5 2.5 0 0 1 0-5H6"></path><path d="M18 9h1.5a2.5 2.5 0 0 0 0-5H18"></path><path d="M4 22h16"></path></svg>
       <span>榜单</span>
     </div>
-    <div class="dock-item" onclick="switchView('profile', this)">
+    <div class="dock-item" onclick="switchView('profile', this)" tabindex="0" role="button" aria-label="我的">
       <svg viewBox="0 0 24 24"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"></path><circle cx="12" cy="7" r="4"></circle></svg>
       <span>我的</span>
     </div>
@@ -1521,13 +1539,17 @@ async function serveFrontend() {
     <div class="modal-content">
        <div style="display:flex; justify-content:space-between; margin-bottom:15px;">
           <h3 id="formTitle" style="margin:0;">记录</h3>
-          <span onclick="closeModal()" style="font-size:1.5rem; color:#666; cursor:pointer;">&times;</span>
+           <span onclick="closeModal()" onkeydown="if(event.key==='Enter')closeModal()" role="button" tabindex="0" aria-label="关闭" style="font-size:1.5rem; color:#666; cursor:pointer;">&times;</span>
        </div>
        <input type="hidden" id="recordId">
-       <div class="segment-control">
-          <div class="segment-opt active" data-val="masturbation" onclick="setActType('masturbation')">🖐 独享 (自慰)</div>
-          <div class="segment-opt" data-val="intercourse" onclick="setActType('intercourse')">❤️ 欢愉 (性爱)</div>
-       </div>
+        <div class="segment-control">
+           <div class="segment-opt active" data-val="masturbation" onclick="setActType('masturbation')">
+             <svg viewBox="0 0 24 24" width="16" height="16" stroke="currentColor" fill="none" style="vertical-align:middle;margin-right:4px;"><path d="M18 11V6a2 2 0 0 0-2-2v0a2 2 0 0 0-2 2v0M14 10V4a2 2 0 0 0-2-2v0a2 2 0 0 0-2 2v2M10 10.5V6a2 2 0 0 0-2-2v0a2 2 0 0 0-2 2v8"/><path d="M18 8a2 2 0 1 1 4 0v6a8 8 0 0 1-8 8h-2c-2.8 0-4.5-.86-5.99-2.34l-3.6-3.6a2 2 0 0 1 2.83-2.82L7 15"/></svg>独享
+           </div>
+           <div class="segment-opt" data-val="intercourse" onclick="setActType('intercourse')">
+             <svg viewBox="0 0 24 24" width="16" height="16" stroke="currentColor" fill="none" style="vertical-align:middle;margin-right:4px;"><path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"/></svg>欢愉
+           </div>
+        </div>
        <input type="hidden" id="actType" value="masturbation">
        <div class="form-group"><label>时间</label><input type="datetime-local" id="datetime"></div>
        <div class="input-row">
@@ -2055,9 +2077,12 @@ async function serveFrontend() {
 
     // 辅助：生成卡片内部 HTML 减少重复
     function getCardHTML(item, timeStr) {
+        const iconSvg = item.isM 
+            ? '<svg viewBox="0 0 24 24" stroke-width="2"><path d="M18 11V6a2 2 0 0 0-2-2v0a2 2 0 0 0-2 2v0M14 10V4a2 2 0 0 0-2-2v0a2 2 0 0 0-2 2v2M10 10.5V6a2 2 0 0 0-2-2v0a2 2 0 0 0-2 2v8"/><path d="M18 8a2 2 0 1 1 4 0v6a8 8 0 0 1-8 8h-2c-2.8 0-4.5-.86-5.99-2.34l-3.6-3.6a2 2 0 0 1 2.83-2.82L7 15"/></svg>'
+            : '<svg viewBox="0 0 24 24" stroke-width="2"><path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"/></svg>';
         return \`
         <div class="record-card-content">
-            <div class="record-icon">\${item.isM ? '🖐' : '❤️'}</div>
+            <div class="record-icon type-\${item.isM ? 'm' : 'i'}">\${iconSvg}</div>
             <div style="flex:1; overflow:hidden;">
                 <div style="display:flex; justify-content:space-between; color:#eee; font-weight:600; margin-bottom:4px;">
                     <span>\${item.locStr}</span>
@@ -2075,6 +2100,23 @@ async function serveFrontend() {
             window.requestAnimationFrame(() => { renderVirtualList(); scrollTicking = false; });
             scrollTicking = true;
         }
+    });
+
+    // Keyboard navigation for dock items
+    document.querySelectorAll('.dock-item').forEach(item => {
+        item.addEventListener('keydown', (e) => {
+            if (e.key === 'Enter' || e.key === ' ') {
+                e.preventDefault();
+                const view = item.getAttribute('aria-label');
+                const viewMap = { '首页': 'home', '历史': 'history', '健康': 'health', '计时器': 'timer', '星系': 'galaxy', '榜单': 'leaderboard', '我的': 'profile' };
+                const v = viewMap[view];
+                if (v === 'timer') {
+                    startTimer();
+                } else if (v) {
+                    switchView(v, item);
+                }
+            }
+        });
     });
 
     async function quickDelete(id, btnEl) {
