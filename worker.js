@@ -1133,6 +1133,232 @@ async function serveFrontend() {
     .about-logo { font-family: 'Cinzel'; font-size: 2rem; background: linear-gradient(to right, var(--primary), var(--secondary)); -webkit-background-clip: text; -webkit-text-fill-color: transparent; margin-bottom: 10px; }
     .about-ver { font-size: 0.8rem; color: #666; margin-bottom: 20px; border: 1px solid #333; display: inline-block; padding: 2px 8px; border-radius: 10px; }
 
+    /* === 个人中心页面样式 === */
+    .profile-header-card {
+        background: linear-gradient(145deg, rgba(30,30,35,0.9), rgba(20,20,25,0.95));
+        border: 1px solid rgba(255,255,255,0.08);
+        border-radius: 24px;
+        padding: 30px 20px 24px;
+        text-align: center;
+        margin-top: 20px;
+        margin-bottom: 15px;
+        position: relative;
+        overflow: hidden;
+    }
+    .profile-header-card::before {
+        content: '';
+        position: absolute;
+        top: -30%;
+        left: -30%;
+        width: 160%;
+        height: 160%;
+        background: radial-gradient(circle, rgba(217,70,239,0.08) 0%, transparent 50%);
+        pointer-events: none;
+    }
+    .profile-avatar-wrap {
+        position: relative;
+        display: inline-block;
+        margin-bottom: 8px;
+    }
+    .user-avatar { 
+        width: 96px; height: 96px; border-radius: 50%; background-size: cover; background-position: center; 
+        background-color: #18181b; margin: 0 auto; display: flex; align-items: center; justify-content: center; 
+        border: 3px solid rgba(217,70,239,0.3); box-shadow: 0 0 20px rgba(217,70,239,0.2); 
+        cursor: pointer; overflow: hidden; position: relative; transition: transform 0.2s, border-color 0.2s;
+    }
+    .user-avatar:hover { transform: scale(1.05); border-color: rgba(217,70,239,0.5); }
+    .user-avatar:focus { outline: 2px solid var(--primary); outline-offset: 2px; }
+    .user-avatar svg { color: #555; }
+    .avatar-edit-hint {
+        font-size: 0.7rem; color: #555; margin-top: 4px;
+    }
+    .profile-avatar-input {
+        margin: 12px auto;
+        max-width: 280px;
+    }
+    .profile-avatar-input input {
+        margin-bottom: 8px;
+    }
+    .profile-name {
+        margin: 8px 0 6px;
+        font-size: 1.4rem;
+        font-weight: 600;
+        color: #fff;
+    }
+    .profile-badge {
+        font-size: 0.8rem;
+        color: #666;
+        margin-bottom: 20px;
+    }
+    .profile-stats {
+        display: flex;
+        justify-content: center;
+        align-items: center;
+        gap: 8px;
+        padding: 16px;
+        background: rgba(0,0,0,0.3);
+        border-radius: 16px;
+        border: 1px solid rgba(255,255,255,0.05);
+    }
+    .profile-stat-item {
+        flex: 1;
+        text-align: center;
+    }
+    .profile-stat-val {
+        font-size: 1.3rem;
+        font-weight: 700;
+        color: var(--primary);
+        font-family: 'Cinzel', serif;
+    }
+    .profile-stat-label {
+        font-size: 0.65rem;
+        color: #666;
+        margin-top: 2px;
+    }
+    .profile-stat-divider {
+        width: 1px;
+        height: 30px;
+        background: rgba(255,255,255,0.1);
+    }
+
+    .profile-section {
+        margin-top: 12px !important;
+        padding: 16px !important;
+    }
+    .section-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        margin-bottom: 12px;
+    }
+    .section-title {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        font-size: 0.95rem;
+        font-weight: 500;
+        color: #e5e7eb;
+    }
+    .section-title svg { color: var(--primary); }
+    .section-hint {
+        font-size: 0.7rem;
+        color: #555;
+    }
+    .section-meta {
+        font-size: 0.75rem;
+        color: #666;
+        margin-top: 4px;
+    }
+    .section-arrow {
+        color: #555;
+        margin-left: auto;
+    }
+
+    .settings-list {
+        display: flex;
+        flex-direction: column;
+        gap: 4px;
+    }
+    .settings-item {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        padding: 12px;
+        border-radius: 10px;
+        cursor: pointer;
+        transition: background 0.2s;
+    }
+    .settings-item:hover { background: rgba(255,255,255,0.03); }
+    .settings-item span:first-child {
+        font-size: 0.85rem;
+        color: #ccc;
+    }
+    .settings-item input[type="checkbox"] {
+        display: none;
+    }
+    .toggle-switch {
+        width: 44px;
+        height: 24px;
+        background: #333;
+        border-radius: 12px;
+        position: relative;
+        transition: background 0.2s;
+    }
+    .toggle-switch::after {
+        content: '';
+        position: absolute;
+        width: 20px;
+        height: 20px;
+        background: #666;
+        border-radius: 50%;
+        top: 2px;
+        left: 2px;
+        transition: transform 0.2s, background 0.2s;
+    }
+    .settings-item input:checked + .toggle-switch {
+        background: var(--primary);
+    }
+    .settings-item input:checked + .toggle-switch::after {
+        transform: translateX(20px);
+        background: #fff;
+    }
+
+    .drawer-hint {
+        font-size: 0.75rem;
+        color: #666;
+        margin-bottom: 12px;
+    }
+    .profile-actions {
+        display: flex;
+        flex-direction: column;
+        gap: 10px;
+        margin-top: 16px;
+    }
+    .btn-admin {
+        border-style: dashed;
+        color: #9ca3af;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        gap: 8px;
+    }
+    .btn-logout {
+        background: transparent;
+        border: 1px solid rgba(239,68,68,0.3);
+        color: #fca5a5;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        gap: 8px;
+    }
+    .btn-logout:hover {
+        background: rgba(239,68,68,0.1);
+        border-color: rgba(239,68,68,0.5);
+    }
+    .btn-sm {
+        padding: 8px 16px;
+        font-size: 0.8rem;
+    }
+
+    /* 桌面端个人中心优化 */
+    @media (min-width: 900px) {
+        .profile-header-card {
+            max-width: 500px;
+            margin-left: auto;
+            margin-right: auto;
+        }
+        .profile-section {
+            max-width: 500px;
+            margin-left: auto;
+            margin-right: auto;
+        }
+        .profile-actions {
+            max-width: 500px;
+            margin-left: auto;
+            margin-right: auto;
+        }
+    }
+
     /* --- 修复后的 Batch Bar 样式 --- */
     .batch-bar {
         position: fixed; 
@@ -1356,82 +1582,100 @@ async function serveFrontend() {
     <!-- 视图：个人中心 -->
     <div id="view-profile" class="view-section">
        <!-- 顶部个人信息卡 -->
-       <div class="glass card" style="margin-top:20px; text-align:center; padding-bottom:16px;">
-          <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px;">
-              <span style="font-size:0.75rem; color:#6b7280;">我的档案</span>
-              <span style="font-size:0.75rem; color:#4b5563;">私密本地 · 安全加密</span>
+       <div class="profile-header-card">
+          <div class="profile-avatar-wrap">
+              <div class="user-avatar" id="avatarDisplay" onclick="toggleAvatarInput()" tabindex="0" role="button" aria-label="点击更换头像">
+                  <svg viewBox="0 0 24 24" width="48" height="48" stroke="currentColor" fill="none" stroke-width="1.5"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"></path><circle cx="12" cy="7" r="4"></circle></svg>
+              </div>
+              <div class="avatar-edit-hint">点击编辑</div>
           </div>
-          <div class="user-avatar" id="avatarDisplay" onclick="toggleAvatarInput()">👤</div>
-          <div id="avatarInputBox" class="hidden" style="margin-bottom:12px;">
-             <input type="text" id="avatarUrlInput" placeholder="输入头像图片链接 (URL)" style="margin-bottom:6px;">
-             <button class="btn btn-outline" style="padding:6px 10px; font-size:0.8rem;" onclick="saveAvatar()">保存头像</button>
+          <div id="avatarInputBox" class="hidden profile-avatar-input">
+             <input type="text" id="avatarUrlInput" placeholder="输入头像图片链接 (URL)">
+             <button class="btn btn-outline btn-sm" onclick="saveAvatar()">保存</button>
           </div>
-          <h2 id="profileUser" style="margin:0 0 4px 0; font-size:1.25rem;">User</h2>
-          <div style="font-size:0.8rem; color:#9ca3af; margin-bottom:12px;">秘密花园 · 低调玩家</div>
+          <h2 id="profileUser" class="profile-name">User</h2>
+          <div class="profile-badge">秘密花园 · 低调玩家</div>
 
           <!-- 简要个人统计 -->
-          <div style="display:flex; justify-content:space-between; gap:10px; margin-top:4px; font-size:0.75rem; color:#9ca3af;">
-              <div style="flex:1; text-align:center; padding:8px 0; border-radius:10px; background:rgba(15,23,42,0.9); border:1px solid rgba(148,163,184,0.25);">
-                  <div style="font-size:0.7rem; color:#6b7280;">最近 7 天</div>
-                  <div id="profileStatWeek" style="margin-top:2px; font-size:0.95rem; color:#e5e7eb;">-- 次</div>
+          <div class="profile-stats">
+              <div class="profile-stat-item">
+                  <div class="profile-stat-val" id="profileStatWeek">--</div>
+                  <div class="profile-stat-label">最近 7 天</div>
               </div>
-              <div style="flex:1; text-align:center; padding:8px 0; border-radius:10px; background:rgba(15,23,42,0.9); border:1px solid rgba(148,163,184,0.25);">
-                  <div style="font-size:0.7rem; color:#6b7280;">平均满意度</div>
-                  <div id="profileStatScore" style="margin-top:2px; font-size:0.95rem; color:#e5e7eb;">-- / 10</div>
+              <div class="profile-stat-divider"></div>
+              <div class="profile-stat-item">
+                  <div class="profile-stat-val" id="profileStatScore">--</div>
+                  <div class="profile-stat-label">平均满意度</div>
               </div>
-              <div style="flex:1; text-align:center; padding:8px 0; border-radius:10px; background:rgba(15,23,42,0.9); border:1px solid rgba(148,163,184,0.25);">
-                  <div style="font-size:0.7rem; color:#6b7280;">连续记录</div>
-                  <div id="profileStatStreak" style="margin-top:2px; font-size:0.95rem; color:#e5e7eb;">-- 天</div>
+              <div class="profile-stat-divider"></div>
+              <div class="profile-stat-item">
+                  <div class="profile-stat-val" id="profileStatStreak">--</div>
+                  <div class="profile-stat-label">连续记录</div>
               </div>
           </div>
        </div>
        
-       <!-- 偏好与安全设置 -->
-       <div class="glass card" style="margin-top:10px; padding:16px 16px 10px 16px;">
-          <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;">
-              <span style="font-size:0.9rem;">偏好设置</span>
-              <span style="font-size:0.7rem; color:#6b7280;">只作用于本设备</span>
+       <!-- 偏好设置 -->
+       <div class="glass card profile-section">
+          <div class="section-header">
+              <div class="section-title">
+                  <svg viewBox="0 0 24 24" width="18" height="18" stroke="currentColor" fill="none" stroke-width="2"><circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"></path></svg>
+                  <span>偏好设置</span>
+              </div>
+              <span class="section-hint">只作用于本设备</span>
           </div>
-          <div style="display:flex; flex-direction:column; gap:8px; font-size:0.8rem; color:#e5e7eb;">
-              <label style="display:flex; align-items:center; justify-content:space-between; gap:10px;">
+          <div class="settings-list">
+              <label class="settings-item">
                   <span>深色背景动态光效</span>
                   <input type="checkbox" id="prefAmbient" onchange="toggleAmbient()" checked>
+                  <span class="toggle-switch"></span>
               </label>
-              <label style="display:flex; align-items:center; justify-content:space-between; gap:10px;">
+              <label class="settings-item">
                   <span>进入首页时自动加载统计</span>
                   <input type="checkbox" id="prefAutoStats" checked>
+                  <span class="toggle-switch"></span>
               </label>
           </div>
        </div>
 
-       <!-- 安全设置 (抽屉样式) -->
-       <div class="card" style="background:rgba(15,23,42,0.85); padding:0; overflow:hidden; margin-top:10px;" id="securityDrawer">
-          <div class="drawer-header" onclick="toggleDrawer()" style="padding:16px 20px;">
-             <div>
-                <h4 style="margin:0; font-size:0.95rem;">安全与密码</h4>
-                <div style="font-size:0.7rem; color:#6b7280; margin-top:4px;">修改登录密码，保护你的秘密花园</div>
+       <!-- 安全设置 -->
+       <div class="card profile-section" id="securityDrawer">
+          <div class="drawer-header" onclick="toggleDrawer()" tabindex="0" role="button">
+             <div class="section-title">
+                 <svg viewBox="0 0 24 24" width="18" height="18" stroke="currentColor" fill="none" stroke-width="2"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect><path d="M7 11V7a5 5 0 0 1 10 0v4"></path></svg>
+                 <span>安全与密码</span>
              </div>
              <span class="drawer-arrow">▼</span>
           </div>
           <div class="drawer-content">
-             <div style="padding:0 20px 18px 20px;">
-                <div class="form-group"><input type="password" id="p-old" placeholder="当前密码"></div>
-                <div class="form-group"><input type="password" id="p-new" placeholder="新密码 (至少5位)"></div>
-                <button class="btn btn-outline" onclick="changePassword()">修改密码</button>
-             </div>
+             <p class="drawer-hint">修改登录密码，保护你的秘密花园</p>
+             <div class="form-group"><input type="password" id="p-old" placeholder="当前密码"></div>
+             <div class="form-group"><input type="password" id="p-new" placeholder="新密码 (至少5位)"></div>
+             <button class="btn btn-outline" onclick="changePassword()">修改密码</button>
           </div>
        </div>
        
-       <div class="glass card" onclick="openAbout()" style="cursor:pointer; display:flex; justify-content:space-between; align-items:center; margin-top:10px;">
-           <div>
-             <div style="font-size:0.9rem;">关于 Secret Garden</div>
-             <div style="font-size:0.7rem; color:#6b7280; margin-top:2px;">版本 v8.0 · 设计初衷与开源信息</div>
+       <!-- 关于 -->
+       <div class="glass card profile-section" onclick="openAbout()" tabindex="0" role="button">
+           <div class="section-title">
+               <svg viewBox="0 0 24 24" width="18" height="18" stroke="currentColor" fill="none" stroke-width="2"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="16" x2="12" y2="12"></line><line x1="12" y1="8" x2="12.01" y2="8"></line></svg>
+               <span>关于 Secret Garden</span>
            </div>
-           <span style="color:#6b7280; font-size:0.9rem;">详情 &gt;</span>
+           <div class="section-meta">版本 v8.0 · 设计初衷与开源信息</div>
+           <svg class="section-arrow" viewBox="0 0 24 24" width="16" height="16" stroke="currentColor" fill="none" stroke-width="2"><polyline points="9 18 15 12 9 6"></polyline></svg>
        </div>
 
-       <button class="btn btn-outline" style="border-style:dashed; color:#9ca3af; margin-top:12px;" onclick="switchView('admin', null)">管理后台</button>
-       <button class="btn" style="background:#111827; color:#fca5a5; margin-top:16px;" onclick="logout()">退出登录</button>
+       <!-- 底部按钮 -->
+       <div class="profile-actions">
+           <button class="btn btn-outline btn-admin" onclick="switchView('admin', null)">
+               <svg viewBox="0 0 24 24" width="16" height="16" stroke="currentColor" fill="none" stroke-width="2"><circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"></path></svg>
+               管理后台
+           </button>
+           <button class="btn btn-logout" onclick="logout()">
+               <svg viewBox="0 0 24 24" width="16" height="16" stroke="currentColor" fill="none" stroke-width="2"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"></path><polyline points="16 17 21 12 16 7"></polyline><line x1="21" y1="12" x2="9" y2="12"></line></svg>
+               退出登录
+           </button>
+       </div>
     </div>
 
     <!-- 视图：欲望星球 (3D) -->
@@ -1764,13 +2008,19 @@ async function serveFrontend() {
         const r = await fetch(API+'/auth/password', { method:'POST', headers:getHeaders(), body:JSON.stringify({oldPassword:o, newPassword:n}) });
         const d = await r.json(); alert(d.error || d.message);
     }
-    function toggleAvatarInput() { document.getElementById('avatarInputBox').classList.toggle('hidden'); }
+    function toggleAvatarInput() { 
+        const box = document.getElementById('avatarInputBox');
+        box.classList.toggle('hidden');
+        if (!box.classList.contains('hidden')) {
+            document.getElementById('avatarUrlInput').focus();
+        }
+    }
     function saveAvatar() {
         const url = document.getElementById('avatarUrlInput').value;
         if(url) {
             localStorage.setItem('sg_avatar_'+user, url);
             document.getElementById('avatarDisplay').style.backgroundImage = \`url('\${url}')\`;
-            document.getElementById('avatarDisplay').innerText = '';
+            document.getElementById('avatarDisplay').innerHTML = '';
             toggleAvatarInput();
         }
     }
