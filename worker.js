@@ -1639,7 +1639,7 @@ async function serveFrontend() {
        </div>
 
        <!-- 安全设置 -->
-       <div class="card profile-section" id="securityDrawer">
+       <div class="glass card profile-section" id="securityDrawer">
           <div class="drawer-header" onclick="toggleDrawer()" tabindex="0" role="button">
              <div class="section-title">
                  <svg viewBox="0 0 24 24" width="18" height="18" stroke="currentColor" fill="none" stroke-width="2"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect><path d="M7 11V7a5 5 0 0 1 10 0v4"></path></svg>
@@ -1958,10 +1958,12 @@ async function serveFrontend() {
         const avatar = localStorage.getItem('sg_avatar_'+user);
         if(avatar) {
             document.getElementById('avatarDisplay').style.backgroundImage = \`url('\${avatar}')\`;
+            document.getElementById('avatarDisplay').innerHTML = '';
         } else {
             // 使用 DiceBear 生成默认头像
             const dicebearUrl = \`https://api.dicebear.com/7.x/adventurer/svg?seed=\${encodeURIComponent(user)}\`;
             document.getElementById('avatarDisplay').style.backgroundImage = \`url('\${dicebearUrl}')\`;
+            document.getElementById('avatarDisplay').innerHTML = '';
         }
         
         loadStats();
