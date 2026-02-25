@@ -894,7 +894,7 @@ async function serveFrontend() {
         font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei", "Helvetica Neue", sans-serif; 
         min-height: 100vh; 
         /* 底部留出 Dock + 安全区域的高度 */
-        padding-bottom: calc(70px + var(--safe-bottom)); 
+        padding-bottom: calc(85px + var(--safe-bottom)); 
         /* 禁止下拉刷新出的空白背景 */
         overscroll-behavior-y: none; 
         /* 优化点击高亮颜色 */
@@ -1044,7 +1044,7 @@ async function serveFrontend() {
     .dock-item:hover { color: #999; }
     .dock-item:focus { outline: 2px solid var(--primary); outline-offset: -2px; border-radius: 8px; }
     .dock-item.active { color: var(--primary); }
-    .dock-item.active svg { transform: translateY(-3px); stroke: var(--primary); }
+    .dock-item.active svg { stroke: var(--primary); }
     .dock-item.timer-btn { color: var(--accent); }
     .dock-item.timer-btn svg { width: 28px; height: 28px; filter: drop-shadow(0 0 5px rgba(244, 63, 94, 0.4)); }
     .dock-item.timer-btn:hover { color: #ff6b6b; }
@@ -1136,7 +1136,7 @@ async function serveFrontend() {
     /* --- 修复后的 Batch Bar 样式 --- */
     .batch-bar {
         position: fixed; 
-        bottom: calc(75px + var(--safe-bottom)); /* 适配 Dock 高度 */
+        bottom: calc(90px + var(--safe-bottom)); /* 适配 Dock 高度 */
         left: 50%;
         width: 90%; 
         max-width: 400px; 
