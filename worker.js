@@ -894,7 +894,7 @@ async function serveFrontend() {
         font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei", "Helvetica Neue", sans-serif; 
         min-height: 100vh; 
         /* 底部留出 Dock + 安全区域的高度 */
-        padding-bottom: calc(80px + var(--safe-bottom)); 
+        padding-bottom: calc(70px + var(--safe-bottom)); 
         /* 禁止下拉刷新出的空白背景 */
         overscroll-behavior-y: none; 
         /* 优化点击高亮颜色 */
@@ -1037,9 +1037,9 @@ async function serveFrontend() {
     .timeline-content { background: rgba(255,255,255,0.03); border-radius: 12px; padding: 12px; border: 1px solid rgba(255,255,255,0.05); transition: background 0.2s; }
     .time-input { text-align:center; font-family:'Cinzel', monospace; font-size:1.1rem; color:var(--primary); font-weight:bold; }
 
-    .dock-nav { position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%); width: 95%; max-width: 480px; height: 60px; background: rgba(20, 20, 25, 0.9); backdrop-filter: blur(20px); -webkit-backdrop-filter: blur(20px); border: 1px solid rgba(255,255,255,0.1); border-radius: 30px; display: flex; justify-content: space-evenly; align-items: center; z-index: 100; box-shadow: 0 10px 30px rgba(0,0,0,0.6); padding: 0 5px; }
-    .dock-item { position: relative; display: flex; flex-direction: column; align-items: center; justify-content: center; color: #666; font-size: 0.65rem; gap: 3px; transition: 0.3s; width: 60px; height: 100%; cursor: pointer; }
-    .dock-item::after { content:''; position:absolute; top:-10px; bottom:-10px; left:0; right:0; }
+    .dock-nav { position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%); width: 95%; max-width: 480px; height: 60px; background: rgba(20, 20, 25, 0.9); backdrop-filter: blur(20px); -webkit-backdrop-filter: blur(20px); border: 1px solid rgba(255,255,255,0.1); border-radius: 30px; display: flex; justify-content: space-evenly; align-items: center; z-index: 100; box-shadow: 0 10px 30px rgba(0,0,0,0.6); padding: 0 5px; overflow: hidden; }
+    .dock-item { position: relative; display: flex; flex-direction: column; align-items: center; justify-content: center; color: #666; font-size: 0.65rem; gap: 3px; transition: 0.3s; width: 60px; height: 100%; cursor: pointer; border-radius: 12px; }
+    .dock-item::after { content:''; position:absolute; top:0; bottom:0; left:0; right:0; }
     .dock-item svg { width: 22px; height: 22px; stroke: currentColor; stroke-width: 2; fill: none; transition: 0.3s; }
     .dock-item:hover { color: #999; }
     .dock-item:focus { outline: 2px solid var(--primary); outline-offset: -2px; border-radius: 8px; }
@@ -1075,6 +1075,7 @@ async function serveFrontend() {
             width: 100%;
             height: 62px;
         }
+        .dock-item:focus { outline-offset: 0; }
         /* 批量操作栏在桌面端稍微下移，避免与内容重叠太多 */
         .batch-bar {
             bottom: 40px;
@@ -1135,8 +1136,8 @@ async function serveFrontend() {
     /* --- 修复后的 Batch Bar 样式 --- */
     .batch-bar {
         position: fixed; 
-        bottom: calc(85px + var(--safe-bottom)); /* 适配 Dock 高度 */
-        left: 50%; 
+        bottom: calc(75px + var(--safe-bottom)); /* 适配 Dock 高度 */
+        left: 50%;
         width: 90%; 
         max-width: 400px; 
         background: rgba(20,20,25,0.95);
