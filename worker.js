@@ -1524,8 +1524,7 @@ async function serveFrontend() {
          <div class="stat-box"><div class="stat-val" id="sTotal">0</div><div class="stat-label">总次数</div></div>
          <div class="stat-box"><div class="stat-val" id="sDuration">0</div><div class="stat-label">均时长 (分)</div></div>
          <div class="stat-box"><div class="stat-val" id="sScore">0</div><div class="stat-label">满意度</div></div>
-         <div class="stat-box"><div class="stat-val" id="sOrgasm" style="color:var(--primary);">0</div><div class="stat-label">总高潮</div></div>
-          <div class="stat-box"><div class="stat-val" id="sEjaculation" style="color:var(--accent);">0</div><div class="stat-label">总射精</div></div>
+         <div class="stat-box"><div class="stat-val" style="color:var(--primary);"><span id="sOrgasm">0</span> / <span id="sEjaculation" style="color:var(--accent);">0</span></div><div class="stat-label">高潮 / 射精</div></div>
        </div>
 
        <!-- 热力图 -->
@@ -2130,7 +2129,7 @@ async function serveFrontend() {
             document.getElementById('sDuration').innerText = fmtTimeShort(Math.round(s.avg_duration || 0));
 
             document.getElementById('sScore').innerText = s.avg_satisfaction;
-            document.getElementById('sOrgasm').innerText = s.total_orgasms;
+            document.getElementById('sOrgasm').innerText = s.total_orgasms || 0;
             document.getElementById('sEjaculation').innerText = s.total_ejaculations || 0;
 
             // 缓存一份轻量统计给「我的」页面使用
