@@ -924,7 +924,7 @@ async function serveFrontend() {
     .btn-mini:hover { background:#3f3f46; }
     .btn-mini.danger { background:#7f1d1d; border-color:#b91c1c; color:#fecaca; }
     .btn-mini.danger:hover { background:#b91c1c; }
-    .container { max-width: 800px; margin: 0 auto; padding: 20px; }
+    .container { max-width: 800px; margin: 0 auto; padding: 20px; padding-bottom: 100px; }
     .hidden { display: none !important; }
     
     /* 动画与过渡 */
@@ -1058,7 +1058,8 @@ async function serveFrontend() {
         }
         .container {
             max-width: 960px;
-            padding-left: 110px; /* 为左侧 Dock 预留空间 */
+            padding-left: 110px;
+            padding-bottom: 40px;
         }
         .dock-nav {
             top: 50%;
@@ -2033,13 +2034,19 @@ async function serveFrontend() {
         }
     }
     function saveAvatar() {
-        const url = document.getElementById('avatarUrlInput').value;
+        const url = document.getElementById('avatarUrlInput').value.trim();
         if(url) {
             localStorage.setItem('sg_avatar_'+user, url);
             document.getElementById('avatarDisplay').style.backgroundImage = \`url('\${url}')\`;
             document.getElementById('avatarDisplay').innerHTML = '';
-            toggleAvatarInput();
+        } else {
+            // 清除自定义头像，恢复 DiceBear 默认头像
+            localStorage.removeItem('sg_avatar_'+user);
+            const dicebearUrl = \`https://api.dicebear.com/7.x/adventurer/svg?seed=\${encodeURIComponent(user)}\`;
+            document.getElementById('avatarDisplay').style.backgroundImage = \`url('\${dicebearUrl}')\`;
+            document.getElementById('avatarDisplay').innerHTML = '';
         }
+        toggleAvatarInput();
     }
     function openAbout() { document.getElementById('aboutOverlay').style.display = 'flex'; setTimeout(()=>document.getElementById('aboutOverlay').classList.add('show'),10); }
     function closeAbout() { document.getElementById('aboutOverlay').classList.remove('show'); setTimeout(()=>document.getElementById('aboutOverlay').style.display='none',300); }
