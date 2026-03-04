@@ -1,1 +1,8 @@
+#需要忽略的文件
+.gitignore
 AGENTS.md
+
+#需要忽略的文件夹
+.opencode/
+.wrangler/
+openspec/
