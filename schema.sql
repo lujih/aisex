@@ -102,6 +102,10 @@ CREATE INDEX idx_users_created ON users(created_at DESC);
 -- 索引：按日期排序方便计算周期位置
 CREATE INDEX idx_cycles_date ON cycles(uid, start_date DESC);
 
+-- 新增索引：用于详细统计查询
+CREATE INDEX idx_records_datetime ON records(datetime);
+CREATE INDEX idx_record_acts_record ON record_acts(record_id);
+
 -- ============================================
 -- 触发器系统
 -- ============================================

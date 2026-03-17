@@ -11,3 +11,7 @@ compatibility_flags = ["nodejs_compat"]
 binding = "DB"
 database_name = "aisex"
 database_id = "7aa630e0-7baa-419c-bf17-962eeb825a9a"
+
+[[kv_namespaces]]
+binding = "CACHE"
+id = "c447326e3eff4ffbab42d3539df2b20b"

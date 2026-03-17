@@ -53,6 +53,29 @@ export default {
       if (path === '/' || path === '/index.html' || path === '/favicon.ico') {
           response = await serveFrontend();
       }
+      // PWA Manifest
+      else if (path === '/manifest.json') {
+          response = new Response(JSON.stringify({
+              name: '秘密花园',
+              short_name: '花园',
+              description: '私密个人生活记录与统计工具',
+              start_url: '/',
+              display: 'standalone',
+              background_color: '#050505',
+              theme_color: '#d946ef',
+              icons: [
+                  { src: 'data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><text y=".9em" font-size="90">🌹</text></svg>', sizes: 'any', type: 'image/svg+xml' }
+              ]
+          }), {
+              headers: { 'Content-Type': 'application/json' }
+          });
+      }
+      // Robots.txt
+      else if (path === '/robots.txt') {
+          response = new Response('User-agent: *\nDisallow:', {
+              headers: { 'Content-Type': 'text/plain' }
+          });
+      }
       
       // ============================
       // B. 管理员接口 (Header 验证)
@@ -93,16 +116,16 @@ export default {
               // 1. 核心记录 (CRUD)
               if (path === '/api/records') {
                   if (method === 'GET') response = await getRecords(request, env, user);
-                  else if (method === 'POST') response = await createRecord(request, env, user);
-                  else if (method === 'PUT') response = await updateRecord(request, env, user);
-                  else if (method === 'DELETE') response = await deleteRecord(url, env, user);
+                  else if (method === 'POST') response = await createRecord(request, env, user, ctx);
+                  else if (method === 'PUT') response = await updateRecord(request, env, user, ctx);
+                  else if (method === 'DELETE') response = await deleteRecord(url, env, user, ctx);
               }
               else if (path === '/api/records/detail') {
                   response = await getRecordDetail(url, env, user);
               }
               else if (path === '/api/records/batch') {
                   // 批量操作
-                  if (method === 'DELETE') response = await batchDeleteRecords(request, env, user);
+                  if (method === 'DELETE') response = await batchDeleteRecords(request, env, user, ctx);
                   else response = errorResponse('Method Not Allowed', 405);
               }
 
@@ -115,7 +138,7 @@ export default {
                   response = await getDetailedStatistics(request, env, user, ctx);
               }
               else if (path === '/api/leaderboard') {
-                  response = await getLeaderboard(env);
+                  response = await getLeaderboard(env, ctx);
               }
 
               // 3. 生理周期 (Health) - [修复 404 问题关键点]
@@ -139,6 +162,9 @@ export default {
               }
               else if (path === '/api/auth/password') {
                   response = await changePassword(request, env, user);
+              }
+              else if (path === '/api/export') {
+                  response = await exportData(request, env, user);
               }
               
               // 6. 404 Fallback
@@ -330,7 +356,15 @@ function extractActs(data) {
     if (data.acts) delete data.acts; 
     return acts;
 }
-async function createRecord(req, env, user) {
+// 清除用户统计缓存
+function clearStatsCache(env, uid) {
+    if (!env.CACHE) return;
+    const ranges = ['all', 'month', 'year', '3_months'];
+    ranges.forEach(range => env.CACHE.delete(`stats:${uid}:${range}`));
+    env.CACHE.delete(`stats:detail:${uid}`);
+}
+
+async function createRecord(req, env, user, ctx) {
   const data = await req.json();
   const id = generateId(); // 确保 generateId 已定义
   const acts = extractActs(data); // 提取标签数组
@@ -354,9 +388,12 @@ async function createRecord(req, env, user) {
   // 3. 批量执行
   await env.DB.batch([mainStmt, ...actStmts]);
   
+  // 清除统计缓存
+  clearStatsCache(env, user.uid);
+  
   return jsonResponse({ message: '创建成功', id });
 }
-async function updateRecord(req, env, user) {
+async function updateRecord(req, env, user, ctx) {
   const data = await req.json();
   if (!data.id) return errorResponse('缺少ID');
   
@@ -387,22 +424,49 @@ async function updateRecord(req, env, user) {
   // 3. 批量执行
   await env.DB.batch([updateStmt, deleteActsStmt, ...insertActsStmts]);
 
+  // 清除统计缓存
+  clearStatsCache(env, user.uid);
+
   return jsonResponse({ message: '更新成功' });
 }
-async function deleteRecord(url, env, user) {
+async function deleteRecord(url, env, user, ctx) {
   const id = url.searchParams.get('id');
   await env.DB.prepare('DELETE FROM records WHERE id = ? AND uid = ?').bind(id, user.uid).run();
+  
+  // 清除统计缓存
+  clearStatsCache(env, user.uid);
+  
   return jsonResponse({ message: '删除成功' });
 }
 async function getStatistics(req, env, user, ctx) {
+  // KV 缓存检查
+  const url = new URL(req.url);
+  const range = url.searchParams.get('range') || 'all';
+  const kvKey = `stats:${user.uid}:${range}`;
+  
+  if (env.CACHE) {
+    const cached = await env.CACHE.get(kvKey);
+    if (cached) {
+      const response = jsonResponse(JSON.parse(cached));
+      response.headers.set('Cache-Control', 'public, max-age=60');
+      return response;
+    }
+  }
+
+  // 边缘缓存检查
   const cacheUrl = new URL(req.url);
   const cacheKey = new Request(cacheUrl.toString(), req);
   const cache = caches.default;
   let response = await cache.match(cacheKey);
-  if (response) return response;
+  if (response) {
+    // 同步到 KV 缓存
+    const body = await response.clone().json();
+    if (env.CACHE) {
+      ctx.waitUntil(env.CACHE.put(kvKey, JSON.stringify(body), { expirationTtl: 120 }));
+    }
+    return response;
+  }
 
-  const url = new URL(req.url);
-  const range = url.searchParams.get('range') || 'all';
   let timeFilter = '';
   if (range === 'month') timeFilter = " AND datetime >= datetime('now', 'start of month')";
   else if (range === 'year') timeFilter = " AND datetime >= datetime('now', '-1 year')";
@@ -461,6 +525,10 @@ async function getStatistics(req, env, user, ctx) {
   response = jsonResponse(data);
   response.headers.set('Cache-Control', 'public, max-age=60');
   ctx.waitUntil(cache.put(cacheKey, response.clone()));
+  // KV 缓存 120 秒
+  if (env.CACHE) {
+    ctx.waitUntil(env.CACHE.put(kvKey, JSON.stringify(data), { expirationTtl: 120 }));
+  }
   return response;
 }
 // [新增] 智能搜索建议
@@ -489,13 +557,38 @@ async function getSearchSuggestions(url, env, user) {
         return jsonResponse([]);
     }
 }
-async function getLeaderboard(env) {
+async function getLeaderboard(env, ctx) {
+    // KV 缓存检查 (排行榜缓存 5 分钟)
+    const kvKey = 'leaderboard';
+    if (env.CACHE) {
+        const cached = await env.CACHE.get(kvKey);
+        if (cached) {
+            return jsonResponse(JSON.parse(cached));
+        }
+    }
+    
     const { results } = await env.DB.prepare(`SELECT u.username, count(r.id) as total_records, sum(r.duration) as total_duration FROM records r JOIN users u ON r.uid = u.uid GROUP BY u.uid ORDER BY total_duration DESC LIMIT 50`).all();
+    
+    // 存入 KV 缓存
+    if (env.CACHE) {
+        ctx.waitUntil(env.CACHE.put(kvKey, JSON.stringify(results), { expirationTtl: 300 }));
+    }
+    
     return jsonResponse(results);
 }
 async function registerUser(req, env, reqId) {
+  // Rate Limiting: 注册每 IP 每小时 3 次
+  const clientIP = req.headers.get('cf-connecting-ip') || 'unknown';
+  if (!(await checkRateLimit(env, `register:${clientIP}`, 3, 3600))) {
+      return errorResponse('注册过于频繁，请稍后再试', 429);
+  }
+  await incrementRateLimit(env, `register:${clientIP}`, 3600);
+
   const { username, password } = await req.json();
   if (!username || !password || username.length < 3) return errorResponse('无效参数');
+  if (password.length < 5) return errorResponse('密码长度至少 5 位');
+  // 用户名只允许字母、数字、下划线
+  if (!/^[a-zA-Z0-9_]+$/.test(username)) return errorResponse('用户名只能包含字母、数字和下划线');
   
   try { 
       const uid = generateId();
@@ -513,8 +606,35 @@ async function registerUser(req, env, reqId) {
       return errorResponse('用户名已存在'); 
   }
 }
+// Rate Limiting: 检查请求是否超出限制
+async function checkRateLimit(env, key, limit, windowSeconds) {
+    if (!env.CACHE) return true; // 无 KV 时跳过限流
+    const countKey = `ratelimit:${key}`;
+    const count = await env.CACHE.get(countKey);
+    if (count && parseInt(count) >= limit) {
+        return false;
+    }
+    return true;
+}
+
+// Rate Limiting: 增加计数
+async function incrementRateLimit(env, key, windowSeconds) {
+    if (!env.CACHE) return;
+    const countKey = `ratelimit:${key}`;
+    const count = await env.CACHE.get(countKey);
+    const newCount = count ? parseInt(count) + 1 : 1;
+    await env.CACHE.put(countKey, newCount.toString(), { expirationTtl: windowSeconds });
+}
+
 async function loginUser(req, env, reqId) {
   if (!env.JWT_SECRET) return errorResponse('Config Error', 500);
+
+  // Rate Limiting: 登录每 IP 每分钟 5 次
+  const clientIP = req.headers.get('cf-connecting-ip') || 'unknown';
+  if (!(await checkRateLimit(env, `login:${clientIP}`, 5, 60))) {
+      return errorResponse('登录尝试过于频繁，请稍后再试', 429);
+  }
+  await incrementRateLimit(env, `login:${clientIP}`, 60);
 
   const { username, password } = await req.json();
   const user = await env.DB.prepare('SELECT * FROM users WHERE username = ?').bind(username).first();
@@ -582,6 +702,75 @@ async function changePassword(req, env, user) {
         return errorResponse('系统错误', 500);
     }
 }
+
+// 数据导出功能
+async function exportData(req, env, user) {
+    const url = new URL(req.url);
+    const format = url.searchParams.get('format') || 'json';
+    
+    // 获取所有记录
+    const { results } = await env.DB.prepare(`
+        SELECT r.*, GROUP_CONCAT(ra.act_type) as acts 
+        FROM records r 
+        LEFT JOIN record_acts ra ON r.id = ra.record_id 
+        WHERE r.uid = ? 
+        GROUP BY r.id 
+        ORDER BY r.datetime DESC
+    `).bind(user.uid).all();
+    
+    if (format === 'csv') {
+        const headers = ['时间', '类型', '时长(分)', '地点', '心情', '满意度', '高潮', '射精', '行为标签', '备注'];
+        const rows = results.map(r => [
+            r.datetime,
+            r.activity_type === 'masturbation' ? '自慰' : '性爱',
+            r.duration || 0,
+            r.location || '',
+            r.mood || '',
+            r.satisfaction || 0,
+            r.orgasm_count || 0,
+            r.ejaculation_count || 0,
+            r.acts || '',
+            r.data_json ? JSON.stringify(r.data_json).slice(0, 100) : ''
+        ].map(v => `"${String(v).replace(/"/g, '""')}"`).join(','));
+        
+        const csv = '\uFEFF' + [headers.join(','), ...rows].join('\n');
+        return new Response(csv, {
+            headers: {
+                'Content-Type': 'text/csv; charset=utf-8',
+                'Content-Disposition': `attachment; filename="secret-garden-${user.username}-${new Date().toISOString().slice(0,10)}.csv"`
+            }
+        });
+    }
+    
+    // 默认 JSON 格式
+    const exportData = {
+        export_time: new Date().toISOString(),
+        username: user.username,
+        total_records: results.length,
+        records: results.map(r => ({
+            datetime: r.datetime,
+            activity_type: r.activity_type,
+            duration: r.duration,
+            location: r.location,
+            mood: r.mood,
+            satisfaction: r.satisfaction,
+            orgasm_count: r.orgasm_count,
+            ejaculation_count: r.ejaculation_count,
+            acts: r.acts ? r.acts.split(',') : [],
+            partner_name: r.partner_name,
+            sexual_position: r.sexual_position,
+            data: r.data_json ? JSON.parse(r.data_json) : null
+        }))
+    };
+    
+    return new Response(JSON.stringify(exportData, null, 2), {
+        headers: {
+            'Content-Type': 'application/json; charset=utf-8',
+            'Content-Disposition': `attachment; filename="secret-garden-${user.username}-${new Date().toISOString().slice(0,10)}.json"`
+        }
+    });
+}
+
 function splitData(data, uid, id) {
     // Schema 中已存在的列，不应放入 JSON
     const coreMap = ['activity_type','datetime','duration','location','mood','satisfaction','orgasm_count','ejaculation_count','partner_name','sexual_position','stimulation'];
@@ -654,18 +843,37 @@ async function batchDeleteRecords(req, env, user) {
 
     try {
         await env.DB.batch(stmts);
+        // 清除统计缓存
+        clearStatsCache(env, user.uid);
         return jsonResponse({ message: `成功删除 ${ids.length} 条记录` });
     } catch (e) {
         return errorResponse('批量删除失败');
     }
 }
 async function getDetailedStatistics(req, env, user, ctx) {
-    // 缓存策略 (可选，建议缓存 1-5 分钟)
+    // KV 缓存检查
+    const kvKey = `stats:detail:${user.uid}`;
+    if (env.CACHE) {
+        const cached = await env.CACHE.get(kvKey);
+        if (cached) {
+            const response = jsonResponse(JSON.parse(cached));
+            response.headers.set('Cache-Control', 'public, max-age=300');
+            return response;
+        }
+    }
+
+    // 边缘缓存检查
     const cacheUrl = new URL(req.url);
     const cacheKey = new Request(cacheUrl.toString(), req);
     const cache = caches.default;
     let response = await cache.match(cacheKey);
-    if (response) return response;
+    if (response) {
+        const body = await response.clone().json();
+        if (env.CACHE) {
+            ctx.waitUntil(env.CACHE.put(kvKey, JSON.stringify(body), { expirationTtl: 300 }));
+        }
+        return response;
+    }
 
     // 1. 标签云统计 (Tag Cloud)
     // 关联 users 表是为了确保只查当前用户 (虽然 record_acts 有 record_id，但为了安全最好 JOIN 检查 uid，或者依赖 record_id 的唯一性)
@@ -714,6 +922,10 @@ async function getDetailedStatistics(req, env, user, ctx) {
     response = jsonResponse(data);
     response.headers.set('Cache-Control', 'public, max-age=300'); // 缓存 5 分钟
     ctx.waitUntil(cache.put(cacheKey, response.clone()));
+    // KV 缓存
+    if (env.CACHE) {
+        ctx.waitUntil(env.CACHE.put(kvKey, JSON.stringify(data), { expirationTtl: 300 }));
+    }
     return response;
 }
 // --- 生理周期逻辑 ---
@@ -870,6 +1082,7 @@ async function serveFrontend() {
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
   <meta name="theme-color" content="#050505">
+  <link rel="manifest" href="/manifest.json">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
   <title>Secret Garden</title>
